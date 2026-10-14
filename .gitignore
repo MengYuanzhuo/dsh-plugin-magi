@@ -1,0 +1,20 @@
+# ── 开发期产物 ────────────────────────────────────────────────────────────
+.magi/
+.magi-dev/
+.magi-dev2/
+.magi-dev3/
+.magi-*/
+tmp/
+node_modules/
+*.log
+dom.html
+edge-profile*/
+
+# ── 打包 / 安装产物与备份 ────────────────────────────────────────────────
+dist/
+install-backup/
+
+# ── 预览用的 React ───────────────────────────────────────────────────────
+# 这份 React 是从本机 DSH 的 app.asar 里切出来的副本（MIT），不作为源码分发；
+# 需要离线预览时用 tools/extract-host-react.cjs 从本机 app.asar 现场生成。
+preview/vendor/

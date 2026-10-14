@@ -1,0 +1,14 @@
+# 仓库内一律用 LF（Windows 检出也不会被 autocrlf 改写，避免整文件 diff 抖动）
+* text=auto eol=lf
+
+# 批处理必须是 CRLF，否则 cmd 解析会出错
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 二进制/资产不做行尾转换
+*.png binary
+*.jpg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.tgz binary

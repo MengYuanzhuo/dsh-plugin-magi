@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MAGI · 连线模式预览（真实 HTTP + SSE）</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #040604; color: #2fd44b; font-family: Consolas, monospace; }
+  .page { max-width: 1500px; margin: 0 auto; padding: 18px; }
+  .banner { border: 1px solid #123021; background: #0b0f0c; padding: 8px 12px; font-size: 12px; margin-bottom: 14px; letter-spacing: .04em; }
+  .banner b { color: #39ff14; }
+  .banner .bad { color: #ff2b2b; }
+  .banner code { color: #35d6d6; }
+  .hint { color: #1f7a35; font-size: 11.5px; margin-top: 10px; line-height: 1.7; }
+  .hint code { color: #2fd44b; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="banner" id="banner">MAGI 连线模式：正在探测 <code>/magi/api/config</code> …</div>
+  <div id="root"></div>
+  <div class="hint">
+    这一页用的是 <b>真实的</b> <code>fetch</code> 与 <code>EventSource</code>，直连 MAGI 开发服务器，
+    因此检定的是「客户端 bundle ↔ 宿主半协议」是否真的对得上。<br>
+    起服务器：<code>node tools/magi-dev-server.mjs --port 8790</code>，然后打开
+    <code>http://127.0.0.1:8790/preview/live.html</code>。
+    完全离线的自播演示见 <code>preview/index.html</code>。
+  </div>
+</div>
+
+<!-- React 18.3.1 + ReactDOM：优先用从宿主前端 bundle 里原样切出的那一份（与 GUI 同源），
+     其次回落到 npm UMD 那一对。 -->
+<script src="./vendor/react-magi-umd.js"></script>
+<script>
+  if (typeof window.React !== "object" || window.React === null) {
+    document.write('<script src="./vendor/react.production.min.js"><\/script>');
+    document.write('<script src="./vendor/react-dom.production.min.js"><\/script>');
+  }
+  if (typeof window.React !== "undefined" && window.React.React !== undefined) {
+    window.ReactDOM = window.React.ReactDOM;
+    window.React = window.React.React;
+  }
+</script>
+
+<!-- 最小宿主垫片：只提供 __ModuleLoader__ 与 require("react") -->
+<script>
+  window.__magiModule = null;
+  window.__ModuleLoader__ = {
+    load: function (descriptor) {
+      window.__magiLoadedId = descriptor.id;
+      window.__magiModule = descriptor.factory(function requireShim(id) {
+        if (id === "react") return window.React;
+        throw new Error("live preview require shim: unexpected module '" + id + "'");
+      });
+    }
+  };
+</script>
+
+<!-- 被测的真实产物 -->
+<script src="../lib/client.js"></script>
+
+<script>
+(function () {
+  "use strict";
+  var banner = document.getElementById("banner");
+  var say = function (html, bad) {
+    banner.innerHTML = (bad ? '<span class="bad">' : '<span>') + html + "</span>";
+  };
+
+  if (window.__magiModule === null) {
+    say("客户端 bundle 未加载：__ModuleLoader__.load 没有被调用。", true);
+    return;
+  }
+
+  var registrations = [];
+  var ctx = {
+    // 故意不提供 layout：面板应当把「转到主视图」按钮隐藏，而不是崩掉
+    slots: {
+      inject: function (name, fn) { fn(); },
+      register: function (opts, Comp) {
+        registrations.push({ opts: opts, Comp: Comp });
+        return function () {};
+      }
+    }
+  };
+
+  try {
+    window.__magiModule.apply(ctx);
+  } catch (error) {
+    say("apply(ctx) 抛错：" + String(error && error.message ? error.message : error), true);
+    return;
+  }
+
+  var panel = registrations.filter(function (r) { return r.opts.name === "main"; })[0];
+  if (panel === undefined) {
+    say("没有注册到 main 槽（注册项：" + registrations.map(function (r) { return r.opts.name; }).join(", ") + "）", true);
+    return;
+  }
+
+  var ui = { crtEffects: true, sound: false };
+
+  // 先确认服务器在，再渲染（顺便展示 /magi/api/config 的真实返回）
+  fetch("/magi/api/config")
+    .then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    })
+    .then(function (payload) {
+      var config = payload && payload.config ? payload.config : {};
+      if (config.ui && typeof config.ui.crtEffects === "boolean") ui.crtEffects = config.ui.crtEffects;
+      if (config.ui && typeof config.ui.sound === "boolean") ui.sound = config.ui.sound;
+      say("已连上 MAGI 宿主半：model=<b>" + (config.model || "会话默认") +
+        "</b> · llmMode=<b>" + config.llmMode + "</b> · 加权计票=<b>" + (config.useWeights ? 'on' : 'off') +
+        "</b> · ui=" + JSON.stringify(config.ui));
+    })
+    .catch(function (error) {
+      say("连不上 /magi/api/config（" + String(error && error.message ? error.message : error) +
+        "）—— 面板仍会渲染，但表决会失败。请用开发服务器打开本页。", true);
+    })
+    .then(function () {
+      var root = window.ReactDOM.createRoot(document.getElementById("root"));
+      root.render(window.React.createElement(panel.Comp, { ui: ui }));
+      window.__magiRegistrations = registrations;
+    });
+})();
+</script>
+</body>
+</html>

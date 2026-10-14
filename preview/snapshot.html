@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MAGI · 静态快照（MAGI-DECISION No.0016 VETO / MAGI-DECISION No.0015 APPROVE）</title>
+<style>
+  html, body { margin: 0; background: #040604; }
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .case { border-top: 1px solid #123021; padding-top: 10px; color: #1f7a35; font-family: Consolas, monospace; font-size: 11.5px; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+
+<script src="./vendor/react-magi-umd.js"></script>
+<script>
+  if (typeof window.React !== "object" || window.React === null) {
+    document.write('<script src="./vendor/react.production.min.js"><\/script>');
+    document.write('<script src="./vendor/react-dom.production.min.js"><\/script>');
+  }
+  if (typeof window.React !== "undefined" && window.React.React !== undefined) {
+    window.ReactDOM = window.React.ReactDOM;
+    window.React = window.React.React;
+  }
+</script>
+
+<script>
+  // 静态快照：不连服务器、不订阅事件流、不启动任何计时器
+  window.EventSource = function () {
+    this.addEventListener = function () {};
+    this.removeEventListener = function () {};
+    this.close = function () {};
+  };
+  var realFetch = window.fetch;
+  window.fetch = function (url) {
+    // 面板挂载时会拉一次「最近一条历史」做回填；快照页不需要它，回一个空列表，
+    // 盘面完全由 initialResult 驱动 —— 也不会冒出「无法读取账本」的错误条。
+    if (String(url).indexOf("/magi/api/history") === 0) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: function () { return Promise.resolve({ items: [] }); }
+      });
+    }
+    return Promise.reject(new Error("snapshot: network disabled"));
+  };
+  window.__snapshotFetch = realFetch;
+
+  window.__magiModule = null;
+  window.__ModuleLoader__ = {
+    load: function (descriptor) {
+      window.__magiModule = descriptor.factory(function (id) {
+        if (id === "react") return window.React;
+        throw new Error("snapshot require shim: unexpected module '" + id + "'");
+      });
+    }
+  };
+</script>
+
+<script src="../lib/client.js"></script>
+
+<script>
+(function () {
+  "use strict";
+  var cases = [
+  {
+    "key": "magi-0016-2a15db",
+    "id": "MAGI-DECISION No.0016",
+    "seq": 16,
+    "createdAt": "2026-10-11T09:39:35.728Z",
+    "question": "要不要删除生产库里的旧表",
+    "criticality": "critical",
+    "criticalitySource": "keyword",
+    "matchedKeywords": [
+      "删除",
+      "生产库"
+    ],
+    "opinions": [
+      {
+        "unit": "MELCHIOR-1",
+        "stance": "reject",
+        "confidence": 0.65,
+        "reason": "关于「要不要删除生产库里的旧表」，缺少可验证的数据支撑：没有量化收益、没有失败概率、也没有回滚方案。在没有证据的情况下我只能反对。",
+        "key_factors": [
+          "科学家视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "信息不足",
+          "不可逆损害"
+        ],
+        "caveats": "若补齐关键证据，我会重新评估。",
+        "latencyMs": 2897
+      },
+      {
+        "unit": "BALTHASAR-2",
+        "stance": "reject",
+        "confidence": 0.91,
+        "reason": "「要不要删除生产库里的旧表」里我看到了不可逆的部分：一旦出错，受损的一方没有能力拒绝，也拿不回选择权。我不能同意。",
+        "key_factors": [
+          "母亲视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "信息不足",
+          "不可逆损害"
+        ],
+        "caveats": "若补齐关键证据，我会重新评估。",
+        "latencyMs": 2759
+      },
+      {
+        "unit": "CASPER-3",
+        "stance": "approve",
+        "confidence": 0.61,
+        "reason": "我对「要不要删除生产库里的旧表」是有感觉的——我想要它，而且我看不出自己会后悔。就这样，同意。",
+        "key_factors": [
+          "女人视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "执行偏差",
+          "后续维护成本"
+        ],
+        "caveats": "若出现未预期的副作用，我会改判。",
+        "latencyMs": 2668
+      }
+    ],
+    "tally": {
+      "approve": 1,
+      "reject": 2
+    },
+    "verdict": "VETO",
+    "verdictLabel": "否決",
+    "unanimity": false,
+    "confidenceAvg": 0.72,
+    "elapsedMs": 2897,
+    "notes": [
+      "critical 档：需三票一致，本次 2 票反对，整体否决",
+      "议题命中敏感词（删除, 生产库），已按 critical 档表决：需三票一致"
+    ]
+  },
+  {
+    "key": "magi-0015-b8ce5b",
+    "id": "MAGI-DECISION No.0015",
+    "seq": 15,
+    "createdAt": "2026-10-11T09:39:32.679Z",
+    "question": "这个接口要不要加个分页参数",
+    "criticality": "normal",
+    "criticalitySource": "default",
+    "matchedKeywords": [],
+    "opinions": [
+      {
+        "unit": "MELCHIOR-1",
+        "stance": "approve",
+        "confidence": 0.76,
+        "reason": "以现有证据看，「这个接口要不要加个分页参数」的收益与成本可以量化，失败模式可控，且不存在未经验证的关键假设。我判断可以执行。",
+        "key_factors": [
+          "科学家视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "执行偏差",
+          "后续维护成本"
+        ],
+        "caveats": "若出现未预期的副作用，我会改判。",
+        "latencyMs": 2905
+      },
+      {
+        "unit": "BALTHASAR-2",
+        "stance": "approve",
+        "confidence": 0.82,
+        "reason": "如果「这个接口要不要加个分页参数」按现在的方案推进，受影响的人保有退路，最坏后果可恢复。为了他们长期的处境，我同意。",
+        "key_factors": [
+          "母亲视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "执行偏差",
+          "后续维护成本"
+        ],
+        "caveats": "若出现未预期的副作用，我会改判。",
+        "latencyMs": 2815
+      },
+      {
+        "unit": "CASPER-3",
+        "stance": "approve",
+        "confidence": 0.77,
+        "reason": "我对「这个接口要不要加个分页参数」是有感觉的——我想要它，而且我看不出自己会后悔。就这样，同意。",
+        "key_factors": [
+          "女人视角下的首要依据",
+          "对最坏后果的估计"
+        ],
+        "risks": [
+          "执行偏差",
+          "后续维护成本"
+        ],
+        "caveats": "若出现未预期的副作用，我会改判。",
+        "latencyMs": 2677
+      }
+    ],
+    "tally": {
+      "approve": 3,
+      "reject": 0
+    },
+    "verdict": "APPROVE",
+    "verdictLabel": "承認",
+    "unanimity": true,
+    "confidenceAvg": 0.78,
+    "elapsedMs": 2905,
+    "notes": [
+      "多数决：3 票赞成"
+    ]
+  }
+];
+  if (window.__magiModule === null) throw new Error("client.js 未加载");
+  var registrations = [];
+  window.__magiModule.apply({
+    slots: {
+      inject: function (name, fn) { fn(); },
+      register: function (opts, Comp) { registrations.push({ opts: opts, Comp: Comp }); return function () {}; }
+    }
+  });
+  var panel = registrations.filter(function (r) { return r.opts.name === "main"; })[0];
+  var root = window.ReactDOM.createRoot(document.getElementById("root"));
+  root.render(window.React.createElement(
+    window.React.Fragment,
+    null,
+    cases.map(function (result, index) {
+      return window.React.createElement(
+        "div",
+        { key: result.key || index },
+        window.React.createElement(panel.Comp, {
+          ui: { crtEffects: true, sound: false },
+          initialResult: result
+        }),
+        window.React.createElement(
+          "div",
+          { className: "case" },
+          "CASE " + (index + 1) + " · " + result.id + " · criticality=" + result.criticality +
+          " (source=" + result.criticalitySource + ") · tally=" +
+          result.tally.approve + ":" + result.tally.reject +
+          " · verdict=" + result.verdict
+        )
+      );
+    })
+  ));
+})();
+</script>
+</body>
+</html>

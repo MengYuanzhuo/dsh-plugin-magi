@@ -1,0 +1,26 @@
+# MAGI 三贤人 —— bundle 补丁层（官方 bundle 形态：package.json 里 dsh.bundle.patch 指向本文件）
+#
+# 安装由 plugin_manager 的 install_bundle 完成：它会把这个包装进 profile 并插入本行。
+# 行里的 name 用**包名**（不是路径）——官方安装路径下包名可解析。config 每一项都可以改。
+- insert:
+    - id: magi
+      name: 'dsh-plugin-magi'
+      config:
+        # 空字符串 = 沿用当前会话默认的 provider / model（推荐）
+        provider: ''
+        model: ''
+        # 计票：normal（多数决）；critical 需三票一致。三台单元只能选边，没有弃权/保留
+        timeoutMs: 90000
+        maxTokens: 2000
+        passTemperature: false      # 运行时若接受 temperature 再打开（0.2 / 0.5 / 0.9）
+        llmMode: live               # live | stub（stub 用于离线自检，不调用模型）
+        ledgerDir: .magi
+        # 人格提示词的外部文件目录（melchior.md / balthasar.md / casper.md / contract.md）
+        # 每次表决现读 → 改人格不用重启；留空则只用内置默认（发行版默认留空，便于移植）
+        # 本机若要启用：改成绝对路径，例如 'D:\MAGI\personas'
+        personasDir: ''
+        historyLimit: 50
+        ui:
+          crtEffects: true
+          sound: false
+          bootSequence: false

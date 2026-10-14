@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAGI 插件 · 离线预览</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; background: #070a08; }
+  body { font-family: Consolas, 'JetBrains Mono', 'SF Mono', monospace; color: #2fd44b; padding: 18px 18px 48px; }
+  .demo-head { border: 1px solid #123021; background: #0b0f0c; padding: 12px 14px; margin-bottom: 16px; }
+  .demo-head h1 { margin: 0 0 6px; font-size: 15px; letter-spacing: .22em; color: #39ff14; font-weight: 700; }
+  .demo-head p { margin: 4px 0 0; font-size: 12px; color: #1f7a35; line-height: 1.6; }
+  .demo-head code { color: #35d6d6; }
+  .demo-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  button.demo-btn { background: none; border: 1px solid #1f7a35; color: #39ff14; font-family: inherit; font-size: 12px; letter-spacing: .12em; padding: 5px 14px; cursor: pointer; }
+  button.demo-btn:hover { background: rgba(57,255,20,.1); }
+  .demo-section { margin-top: 22px; font-size: 11px; letter-spacing: .24em; color: #1f7a35; border-bottom: 1px solid #123021; padding-bottom: 5px; }
+  .demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 16px; margin-top: 12px; align-items: start; }
+  .demo-cards { display: grid; gap: 14px; margin-top: 12px; }
+  .demo-note { font-size: 11px; color: #1f7a35; margin: 8px 0 0; }
+  .demo-frame { border: 1px solid #123021; padding: 0; }
+  .demo-frame > .demo-frame-label { font-size: 10.5px; letter-spacing: .2em; color: #1f7a35; background: #0d130f; border-bottom: 1px solid #123021; padding: 5px 10px; }
+  #demo-log { margin-top: 14px; border: 1px solid #123021; background: #060807; padding: 8px 10px; font-size: 11.5px; color: #1f7a35; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+  #demo-log b { color: #2fd44b; font-weight: 500; }
+</style>
+</head>
+<body>
+
+<div class="demo-head">
+  <h1>MAGI SYSTEM · 离线预览</h1>
+  <p>
+    本页完全离线运行：React 18.3.1 由 <code>preview/vendor/react-magi-umd.js</code> 提供（从 app.asar 内的
+    web shell bundle 中原样切出），<code>lib/client.js</code> 作为真实交付物被加载。
+    <code>fetch</code> 与 <code>EventSource</code> 都是页面内的假实现，不会发出任何网络请求。
+  </p>
+  <div class="demo-row">
+    <button class="demo-btn" id="demo-replay">重新播放两道表决</button>
+    <button class="demo-btn" id="demo-sound">音效（ui.sound）：关</button>
+    <span style="font-size:11px;color:#1f7a35">两块面板各自接一条独立的假 SSE 流；卡片区渲染 magi_vote 的真实 tool block JSON。</span>
+  </div>
+</div>
+
+<div id="demo-root"></div>
+<div class="demo-section">FAKE SSE EVENT LOG</div>
+<div id="demo-log"></div>
+
+<!-- 1) React 18.3.1 + ReactDOM 18.3.1 (UMD).
+     Primary source: vendor/react-magi-umd.js — carved verbatim out of the DSH web shell
+     bundle inside app.asar, so it needs no network at any point.
+     Fallback: if that file is ever replaced by a plain react/react-dom UMD pair
+     (see tools/fetch-preview-react.mjs), load it here instead. -->
+<script src="./vendor/react-magi-umd.js"></script>
+<script>
+  // Accept either vendoring shape: the single carved bundle, or a
+  // react + react-dom UMD pair placed side by side by the host tooling.
+  if (typeof window.React !== "object" || window.React === null) {
+    document.write('<script src="./vendor/react.production.min.js"><\/script>');
+    document.write('<script src="./vendor/react-dom.production.min.js"><\/script>');
+  }
+  if (typeof window.React !== "undefined" && window.React.React !== undefined) {
+    // The carved bundle exposes { React, ReactDOM }; the UMD pair exposes them directly.
+    window.ReactDOM = window.React.ReactDOM;
+    window.React = window.React.React;
+  }
+</script>
+
+<!-- 2) Fake host: module loader + slots context + fetch/EventSource shims -->
+<script>
+(function () {
+  "use strict";
+
+  var logNode = document.getElementById("demo-log");
+  function escapeHtml(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function log(text) {
+    var line = document.createElement("div");
+    // Callers pass a few deliberate <b> markers; escape everything else.
+    line.innerHTML = "<b>" + new Date().toISOString().slice(11, 23) + "</b>  " +
+      escapeHtml(text).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
+    logNode.appendChild(line);
+    logNode.scrollTop = logNode.scrollHeight;
+    while (logNode.childNodes.length > 400) logNode.removeChild(logNode.firstChild);
+  }
+
+  var uiConfig = { crtEffects: true, sound: false };
+  window.__magiConfig = { ui: uiConfig };
+
+  // ---- require shim: only React is external -------------------------------
+  window.__magiRequire = function (id) {
+    if (id === "react") return window.React.React;
+    if (id === "react-dom" || id === "react-dom/client") return window.React.ReactDOM;
+    throw new Error("preview require shim: unexpected module '" + id + "'");
+  };
+
+  var registrations = [];
+  window.__magiRegistrations = registrations;
+
+  function fakeContext() {
+    return {
+      // A stand-in for the client root's `layout` service, so the panel's
+      // "转到主视图" button is exercised instead of being hidden.
+      layout: {
+        selectPanel: function (name) { log("ctx.layout.selectPanel(<b>" + name + "</b>)"); }
+      },
+      slots: {
+        inject: function (name, fn) {
+          log("ctx.slots.inject(<b>" + name + "</b>)");
+          fn();
+        },
+        register: function (opts, Comp) {
+          registrations.push({ opts: opts, Comp: Comp });
+          log("ctx.slots.register({ name: <b>" + opts.name + "</b>, key: <b>" + String(opts.key) + "</b> }) → " + (Comp && (Comp.name || "anonymous")));
+          return function () { log("dispose " + opts.name + "/" + opts.key); };
+        }
+      }
+    };
+  }
+
+  // ---- EventSource shim: scripted frames, one instance per panel ----------
+  var streams = [];
+  function FakeEventSource(url) {
+    var self = this;
+    this.url = url;
+    this.closed = false;
+    this.listeners = { message: [], open: [], error: [] };
+    streams.push(this);
+    setTimeout(function () { if (!self.closed) self.emit("open", {}); }, 0);
+  }
+  FakeEventSource.prototype.addEventListener = function (type, fn) {
+    if (this.listeners[type] === undefined) this.listeners[type] = [];
+    this.listeners[type].push(fn);
+  };
+  FakeEventSource.prototype.removeEventListener = function (type, fn) {
+    var list = this.listeners[type] || [];
+    var index = list.indexOf(fn);
+    if (index !== -1) list.splice(index, 1);
+  };
+  FakeEventSource.prototype.close = function () { this.closed = true; };
+  FakeEventSource.prototype.emit = function (type, event) {
+    var list = (this.listeners[type] || []).slice();
+    for (var i = 0; i < list.length; i += 1) list[i](event);
+  };
+  FakeEventSource.prototype.frame = function (payload) {
+    if (this.closed) return;
+    this.emit("message", { data: JSON.stringify(payload) });
+  };
+  window.EventSource = FakeEventSource;
+
+  // ---- fetch shim --------------------------------------------------------
+  window.fetch = function (url, init) {
+    var method = (init && init.method) || "GET";
+    log("fetch <b>" + method + "</b> " + url);
+    if (String(url).indexOf("/magi/api/history") === 0) {
+      return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ items: [window.__magiScenario.normal.result] }); } });
+    }
+    if (String(url).indexOf("/magi/api/vote") === 0) {
+      var body = {};
+      try { body = JSON.parse((init && init.body) || "{}"); } catch (error) { body = {}; }
+      var id = "MAGI-DECISION No.0099";
+      window.__magiManual = { id: id, question: body.question, criticality: body.criticality || "normal" };
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: function () { return Promise.resolve({ id: id, startedAt: new Date().toISOString(), criticality: body.criticality || "normal", criticalitySource: "explicit" }); }
+      });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: function () { return Promise.resolve({}); } });
+  };
+
+  // ---- fake React JSX-free module loader ---------------------------------
+  window.__magiModule = null;
+  window.__ModuleLoader__ = {
+    load: function (descriptor) {
+      log("__ModuleLoader__.load({ id: <b>" + descriptor.id + "</b> })");
+      window.__magiModule = descriptor.factory(window.__magiRequire);
+    }
+  };
+
+  window.__magiBoot = function () {
+    var mod = window.__magiModule;
+    if (mod === null || mod === undefined) throw new Error("client.js was not loaded");
+    log("exports.inject = " + JSON.stringify(mod.inject));
+    mod.apply(fakeContext());
+    return registrations;
+  };
+  window.__magiLog = log;
+})();
+</script>
+
+<!-- 3) The real deliverable under test -->
+<script src="../lib/client.js"></script>
+
+<!-- 4) Fake data + the scripted replay driver + mounting -->
+<script>
+(function () {
+  "use strict";
+  var h = window.React.React.createElement;
+  var ReactDOM = window.React.ReactDOM;
+  var log = window.__magiLog;
+
+  var OPINION = {
+    melchior: {
+      unit: "MELCHIOR-1", stance: "approve", confidence: 0.82,
+      reason: "方案在技术上可行：现有灰度开关已能覆盖 10% 流量，回滚路径明确，观测指标（错误率、P95 延迟）均已就绪。数据缺口是并发写入的尾延迟，但可用限流兜住，风险在可接受区间。",
+      key_factors: ["灰度开关已具备", "回滚路径 < 5 分钟", "观测指标齐备"],
+      risks: ["并发写入尾延迟未压测", "旧版本客户端缓存可能读到新 schema"],
+      caveats: "限流阈值需要在上线前重新标定。",
+      latencyMs: 2140, tokens: { input: 812, output: 264 }
+    },
+    balthasar: {
+      unit: "BALTHASAR-2", stance: "reject", confidence: 0.74,
+      reason: "我看到的不是技术问题，而是不可逆的问题：一旦新 schema 被外部消费方读到，旧客户端的写入会静默丢失，而丢失的数据无法从日志里补回来。为了短期交付速度承担长期数据损伤，我不愿意。",
+      key_factors: ["数据丢失不可逆", "外部消费方未同步升级", "回滚不能恢复已丢失写入"],
+      risks: ["历史账目静默损坏", "受影响方在事后才知情"],
+      caveats: "若能先冻结写入一小时做全量备份，我会重新评估。",
+      latencyMs: 2870, tokens: { input: 833, output: 301 }
+    },
+    casper: {
+      unit: "CASPER-3", stance: "approve", confidence: 0.63,
+      reason: "我说不出完整的理由，但我不想再拖了。这个改动我们讨论了三周，每次都在同一处停下；继续等下去消耗的是团队的信任和兴致，这本身也是一种损害。我支持上线，但我希望先告诉外部消费方一声。",
+      key_factors: ["讨论已停滞三周", "团队士气与信任在流失", "主观上认为风险可控"],
+      risks: ["告知不足会伤害合作关系", "决策偏快可能忽略细节"],
+      caveats: "我对数据完整性的判断不如 MELCHIOR-1 有把握。",
+      latencyMs: 1980, tokens: { input: 806, output: 240 }
+    }
+  };
+
+  function resultNormal() {
+    return {
+      id: "MAGI-DECISION No.0042",
+      createdAt: "2026-02-11T09:41:07.000Z",
+      question: "是否在本周把账本 schema v2 上线到生产环境？",
+      context: "外部消费方尚未升级；灰度开关可用；备份窗口为凌晨 02:00-03:00。",
+      criticality: "normal",
+      criticalitySource: "default",
+      matchedKeywords: [],
+      opinions: [OPINION.melchior, OPINION.balthasar, OPINION.casper],
+      tally: { approve: 2, reject: 1 },
+      verdict: "APPROVE",
+      unanimity: false,
+      confidenceAvg: 0.73,
+      elapsedMs: 7180,
+      notes: ["CASPER-3 建议先通知外部消费方。"]
+    };
+  }
+
+  function resultCritical() {
+    return {
+      id: "MAGI-DECISION No.0043",
+      createdAt: "2026-02-11T10:02:44.000Z",
+      question: "是否立即删除生产环境上已废弃的旧密钥并轮换全部下游凭证？",
+      context: "密钥疑似在构建日志中泄露；下游共 14 个服务；无二次确认窗口。",
+      criticality: "critical",
+      criticalitySource: "keyword",
+      matchedKeywords: ["密钥", "生产环境", "删除"],
+      opinions: [
+        {
+          unit: "MELCHIOR-1", stance: "approve", confidence: 0.88,
+          reason: "泄露已可由构建日志复现，保留旧密钥的期望损失高于轮换成本。建议在 30 分钟窗口内分批轮换，先内部服务后外部，失败即回退到双密钥共存。这是可验证的最优解。",
+          key_factors: ["泄露可复现", "轮换窗口 30 分钟", "双密钥共存可回退"],
+          risks: ["下游 14 个服务逐个改配可能漏项"],
+          caveats: "需要在轮换前导出一次凭证清单做交叉核对。",
+          latencyMs: 2410, tokens: { input: 845, output: 288 }
+        },
+        {
+          unit: "BALTHASAR-2", stance: "reject", confidence: 0.91,
+          reason: "十四处下游里只要有一处没接住新凭证，那条业务链会整段停摆，而停摆期间的用户请求不会等待我们修好。不可逆的不是密钥，是那段时间里没有被人处理的请求。我反对立即执行。",
+          key_factors: ["14 处下游无法逐个人工确认", "停摆影响真实用户", "无二次确认窗口"],
+          risks: ["业务链整段停摆", "受影响用户事后才知情"],
+          caveats: "如果分批且每批之间有验证间隔，我会改投赞成。",
+          latencyMs: 3020, tokens: { input: 861, output: 322 }
+        },
+        {
+          unit: "CASPER-3", stance: "approve", confidence: 0.55,
+          reason: "被泄露这件事让我很不舒服，我不想在这上面赌运气。赶紧换掉，我宁愿承担一次手忙脚乱，也不想在几天后听到坏消息。",
+          key_factors: ["对泄露的主观不安", "拖延带来的心理成本"],
+          risks: ["匆忙操作本身可能制造新故障"],
+          caveats: "我承认这条判断里情绪成分很高。",
+          latencyMs: 1870, tokens: { input: 802, output: 198 }
+        }
+      ],
+      tally: { approve: 2, reject: 1 },
+      verdict: "VETO",
+      unanimity: false,
+      confidenceAvg: 0.78,
+      elapsedMs: 7640,
+      notes: ["critical 档：任一拒否即否決，2:1 多数不生效。", "BALTHASAR-2 要求分批轮换并留验证间隔。"]
+    };
+  }
+
+  var scenarioFrom = {
+    normal: { result: resultNormal() },
+    critical: { result: resultCritical() },
+  };
+  window.__magiScenario = scenarioFrom;
+
+  var DURATIONS = { melchior: 2600, balthasar: 3400, casper: 2400 };
+
+  function tolerantResult(partial) {
+    return {
+      id: partial.id, createdAt: partial.createdAt, question: partial.question,
+      context: partial.context, criticality: partial.criticality,
+      criticalitySource: partial.criticalitySource, matchedKeywords: partial.matchedKeywords,
+      opinions: partial.opinions, tally: partial.tally, verdict: partial.verdict,
+      unanimity: partial.unanimity, confidenceAvg: partial.confidenceAvg,
+      elapsedMs: partial.elapsedMs, notes: partial.notes
+    };
+  }
+
+  function criticalityOf(source) { return source === "keyword" ? "critical" : "normal"; }
+
+  /**
+   * Drive one fake SSE stream through the exact frame vocabulary documented for
+   * GET /magi/api/events: vote → unit(analyzing) → unit-delta… → unit(output) →
+   * unit-done → verdict.
+   */
+  function playScenario(stream, result, speed, done) {
+    var name = result.id;
+    var source = result.criticalitySource;
+    var timers = [];
+    function at(ms, fn) { timers.push(setTimeout(fn, ms / speed)); }
+    var start = Date.now();
+
+    at(0, function () {
+      stream.frame({
+        type: "vote", id: name, question: result.question,
+        criticality: criticalityOf(source), criticalitySource: source,
+        matchedKeywords: result.matchedKeywords || [], startedAt: new Date().toISOString()
+      });
+      log("SSE <b>vote</b> " + name + " criticality=" + criticalityOf(source));
+    });
+
+    var order = ["melchior", "balthasar", "casper"];
+    var total = 0;
+    order.forEach(function (key, unitIndex) {
+      var opinion = result.opinions[unitIndex];
+      var unitName = opinion.unit;
+      var duration = DURATIONS[key];
+      var charMs = duration / opinion.reason.length;
+      at(120 + unitIndex * 90, function () {
+        stream.frame({ type: "unit", id: name, unit: unitName, state: "analyzing" });
+        log("SSE <b>unit</b> " + unitName + " analyzing");
+      });
+      var chars = 0;
+      for (var ms = 260 + unitIndex * 90; ms <= 260 + unitIndex * 90 + duration; ms += 55) {
+        var take = Math.max(1, Math.round(55 / charMs));
+        chars = Math.min(opinion.reason.length, chars + take);
+        var slice = opinion.reason.slice(chars - take, chars);
+        at(ms, function () { stream.frame({ type: "unit-delta", id: name, unit: unitName, text: slice }); });
+      }
+      at(300 + unitIndex * 90 + duration, function () {
+        stream.frame({ type: "unit", id: name, unit: unitName, state: "output" });
+      });
+      at(340 + unitIndex * 90 + duration, function () {
+        stream.frame({ type: "unit-done", id: name, unit: unitName, opinion: opinion });
+        log("SSE <b>unit-done</b> " + unitName + " → " + opinion.stance);
+      });
+      total = Math.max(total, 340 + unitIndex * 90 + duration);
+    });
+
+    at(total + 260, function () {
+      stream.frame({ type: "verdict", id: name, result: tolerantResult(result) });
+      log("SSE <b>verdict</b> " + name + " → " + result.verdict);
+      if (typeof done === "function") done();
+    });
+    return timers;
+  }
+
+  /* ----------------------------- mounting ------------------------------- */
+  var root = document.getElementById("demo-root");
+
+  /** Mount a fresh MagiPanel instance into `host` using a real ReactDOM root. */
+  function mountPanel(host, Comp, seed) {
+    if (host === null) return;
+    if (host.__magiRoot !== undefined) { try { host.__magiRoot.unmount(); } catch (error) { /* ignore */ } }
+    host.__magiRoot = ReactDOM.createRoot(host);
+    // `ui` mirrors the plugin config; `initialResult` seeds the board so the three units
+    // exist before the scripted SSE stream starts typing into them.
+    host.__magiRoot.render(h(Comp, { ui: window.__magiConfig.ui, initialResult: seed }, null));
+  }
+
+  var App = function () {
+    // `__magiBoot` runs the *real* exports.apply(fakeContext()), so the slot
+    // registrations come from lib/client.js itself.
+    var registrations = window.__magiBoot();
+    var panelEntry = registrations.filter(function (entry) { return entry.opts.name === "main"; })[0];
+    var cardEntry = registrations.filter(function (entry) { return entry.opts.name === "tool.call.toolview"; })[0];
+    if (panelEntry === undefined || cardEntry === undefined) throw new Error("expected both slot registrations");
+
+    var hosts = [window.React.React.useRef(null), window.React.React.useRef(null)];
+
+    window.React.React.useEffect(function () {
+      mountPanel(hosts[0].current, panelEntry.Comp, scenarioFrom.normal.result);
+      mountPanel(hosts[1].current, panelEntry.Comp, scenarioFrom.critical.result);
+      log("mounted 2 × " + (panelEntry.Comp.name || "panel") + " with ui=" + JSON.stringify(window.__magiConfig.ui));
+    }, []);
+
+    var normalResult = scenarioFrom.normal.result;
+    var criticalResult = scenarioFrom.critical.result;
+
+    return h("div", null,
+      h("div", { className: "demo-section" }, "1 · main 槽位：MagiPanel × 2（普通 2:1 承認 / critical 否決），假 SSE 逐字打印"),
+      h("div", { className: "demo-grid" },
+        h("div", { className: "demo-frame" },
+          h("div", { className: "demo-frame-label" }, "SCENARIO A · normal · 2:1 → 承認 (APPROVE)"),
+          h("div", { ref: hosts[0] })
+        ),
+        h("div", { className: "demo-frame" },
+          h("div", { className: "demo-frame-label" }, "SCENARIO B · critical · 2:1 → 否決 (VETO)"),
+          h("div", { ref: hosts[1] })
+        )
+      ),
+      h("div", { className: "demo-section" }, "2 · tool.call.toolview 槽位：MagiVoteCard（key = magi_vote），输入为宿主半返回的 block.text"),
+      h("div", { className: "demo-cards" },
+        h("div", { className: "demo-frame" },
+          h("div", { className: "demo-frame-label" }, "block.text = JSON.stringify(normal MagiResult)"),
+          h(cardEntry.Comp, { toolName: "magi_vote", block: { type: "text", text: JSON.stringify(normalResult, null, 2) } }, null)
+        ),
+        h("div", { className: "demo-frame" },
+          h("div", { className: "demo-frame-label" }, "block.text = JSON.stringify(critical VETO MagiResult)"),
+          h(cardEntry.Comp, { toolName: "magi_vote", block: { type: "text", text: JSON.stringify(criticalResult, null, 2) } }, null)
+        ),
+        h("div", { className: "demo-frame" },
+          h("div", { className: "demo-frame-label" }, "block.text = 非 JSON（回退为原文显示，不抛错）"),
+          h(cardEntry.Comp, { toolName: "magi_vote", block: { type: "text", text: "MELCHIOR-1: APPROVE\nBALTHASAR-2: REJECT\nCASPER-3: APPROVE\nVOTE 2:1 → APPROVE" } }, null)
+        )
+      ),
+      h("p", { className: "demo-note" }, "提示：面板内「跳过动画」可立即铺满当前单元文本；底部输入区 Enter 会走假 fetch /magi/api/vote。")
+    );
+  };
+
+  function mount() {
+    var host = document.getElementById("demo-root");
+    if (window.__demoRoot !== undefined && window.__demoRoot !== null) {
+      try { window.__demoRoot.unmount(); } catch (error) { /* ignore */ }
+    }
+    window.__demoRoot = ReactDOM.createRoot(host);
+    window.__demoRoot.render(h(App, null, null));
+  }
+
+  function replay() {
+    log("──────── replay ────────");
+    streams.slice().forEach(function (stream) { stream.close(); });
+    streams.length = 0;
+    mount();
+    setTimeout(function () {
+      if (streams.length >= 2) {
+        playScenario(streams[0], scenarioFrom.normal.result, 1);
+        playScenario(streams[1], scenarioFrom.critical.result, 1);
+      } else {
+        log("ERROR: expected two EventSource instances, got " + streams.length);
+      }
+    }, 60);
+  }
+
+  document.getElementById("demo-replay").addEventListener("click", replay);
+  var soundButton = document.getElementById("demo-sound");
+  soundButton.addEventListener("click", function () {
+    window.__magiConfig.ui.sound = window.__magiConfig.ui.sound !== true;
+    soundButton.textContent = "音效（ui.sound）：" + (window.__magiConfig.ui.sound === true ? "开" : "关");
+    log("ui.sound = " + window.__magiConfig.ui.sound);
+  });
+
+  window.__magiReplay = replay;
+  replay();
+})();
+</script>
+</body>
+</html>

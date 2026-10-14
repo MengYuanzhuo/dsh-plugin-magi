@@ -1,0 +1,78 @@
+{
+  "name": "dsh-plugin-magi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MAGI（三贤人）决策系统 —— 三台独立人格单元各自表决，敏感/重要事项需三票一致。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MengYuanzhuo/dsh-plugin-magi.git"
+  },
+  "homepage": "https://github.com/MengYuanzhuo/dsh-plugin-magi#readme",
+  "bugs": {
+    "url": "https://github.com/MengYuanzhuo/dsh-plugin-magi/issues"
+  },
+  "icon": "./icon.svg",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "meta": {
+    "title": "MAGI 三贤人",
+    "description": "把待决事项交给 MELCHIOR-1（科学家）、BALTHASAR-2（母亲）、CASPER-3（女人）三人格单元独立表决；通常事项多数决，敏感/重要事项须三票一致。"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "magi",
+    "decision",
+    "panel"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2"
+  },
+  "files": [
+    "index.js",
+    "lib/*.js",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node test/magi.test.mjs && node test/api.test.mjs && node test/personas.test.mjs",
+    "dev": "node tools/magi-dev-server.mjs"
+  }
+}

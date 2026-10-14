@@ -27,7 +27,7 @@ magi_vote(question="要不要删除生产库里的旧表", criticality="critical
 
 ```bash
 dsh plugin --profile <名> add github:MengYuanzhuo/dsh-plugin-magi   # 从 GitHub
-dsh plugin --profile <名> add dsh-plugin-magi                       # 从 npm（若已发布）
+dsh plugin --profile <名> add dsh-plugin-magi                       # 从 npm
 ```
 
 应用内也可以走插件管理工具：`plugin_manager { action: "install_bundle", target: "<规格或包目录>" }`。

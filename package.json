@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-magi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "MAGI（三贤人）决策系统 —— 三台独立人格单元各自表决，敏感/重要事项需三票一致。",

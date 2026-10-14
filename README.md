@@ -17,6 +17,10 @@ magi_vote(question="要不要删除生产库里的旧表", criticality="critical
   CASPER-3    approve「我想要它，而且我看不出自己会后悔」
 ```
 
+![端末模式：提訴读数与三盾三角盘面](assets/terminal-mode.png)
+
+> **端末模式**：`提訴` 读数（CODE / FILE / EXTENTION / EX_MODE / PRIORITY）+ 三盾三角盘面，只给颜色与判决 —— 蓝＝承認、红＝拒否、琥珀＝待決。
+
 ## 安装
 
 要求 DSH `0.2.0-rc.2`（清单里以 `peerDependencies` 声明，版本不符会被宿主拒绝安装）。
@@ -68,6 +72,10 @@ magi_personas(action?, force?)                        查看 / 导出人格
 | --- | --- | --- |
 | 盘面 | 三列单元竖栏，逐字打印理由 | **三盾三角盘面**：蓝＝承認、红＝拒否、琥珀＝待決 |
 | 输出 | 理由全文 + key_factors / risks / caveats | **只有颜色与判决词** |
+
+![詳細模式：三台逐字理由](assets/detail-mode.png)
+
+> **詳細模式**：三列单元竖栏，逐字打印理由，附关键因素、风险与保留意见；底部是 `VOTE` / `UNANIMOUS` / `CONF AVG` / `ELAPSED` 计票行。
 
 端末模式下按「执行」后，三块盾形会在**浅绿 ↔ 黑**之间高频闪烁表示思考（三台的周期与相位各自随机），
 某台出结果即定格成结果色；詳細模式保持 `ANALYZING` 状态灯，不加闪烁。

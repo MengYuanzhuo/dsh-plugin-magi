@@ -66,6 +66,7 @@
     "lib/*.js",
     "locale/*.json",
     "icon.svg",
+    "assets/*.png",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"

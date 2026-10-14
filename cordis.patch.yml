@@ -22,5 +22,4 @@
         historyLimit: 50
         ui:
           crtEffects: true
-          sound: false
           bootSequence: false

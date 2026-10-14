@@ -190,7 +190,7 @@ const html = `<!doctype html>
         "div",
         { key: result.key || index },
         window.React.createElement(panel.Comp, {
-          ui: { crtEffects: true, sound: false },
+          ui: { crtEffects: true },
           initialResult: result
         }),
         window.React.createElement(

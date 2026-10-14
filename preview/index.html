@@ -36,7 +36,6 @@
   </p>
   <div class="demo-row">
     <button class="demo-btn" id="demo-replay">重新播放两道表决</button>
-    <button class="demo-btn" id="demo-sound">音效（ui.sound）：关</button>
     <span style="font-size:11px;color:#1f7a35">两块面板各自接一条独立的假 SSE 流；卡片区渲染 magi_vote 的真实 tool block JSON。</span>
   </div>
 </div>
@@ -84,7 +83,7 @@
     while (logNode.childNodes.length > 400) logNode.removeChild(logNode.firstChild);
   }
 
-  var uiConfig = { crtEffects: true, sound: false };
+  var uiConfig = { crtEffects: true };
   window.__magiConfig = { ui: uiConfig };
 
   // ---- require shim: only React is external -------------------------------
@@ -455,13 +454,6 @@
   }
 
   document.getElementById("demo-replay").addEventListener("click", replay);
-  var soundButton = document.getElementById("demo-sound");
-  soundButton.addEventListener("click", function () {
-    window.__magiConfig.ui.sound = window.__magiConfig.ui.sound !== true;
-    soundButton.textContent = "音效（ui.sound）：" + (window.__magiConfig.ui.sound === true ? "开" : "关");
-    log("ui.sound = " + window.__magiConfig.ui.sound);
-  });
-
   window.__magiReplay = replay;
   replay();
 })();

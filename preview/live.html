@@ -96,7 +96,7 @@
     return;
   }
 
-  var ui = { crtEffects: true, sound: false };
+  var ui = { crtEffects: true };
 
   // 先确认服务器在，再渲染（顺便展示 /magi/api/config 的真实返回）
   fetch("/magi/api/config")
@@ -107,7 +107,6 @@
     .then(function (payload) {
       var config = payload && payload.config ? payload.config : {};
       if (config.ui && typeof config.ui.crtEffects === "boolean") ui.crtEffects = config.ui.crtEffects;
-      if (config.ui && typeof config.ui.sound === "boolean") ui.sound = config.ui.sound;
       say("已连上 MAGI 宿主半：model=<b>" + (config.model || "会话默认") +
         "</b> · llmMode=<b>" + config.llmMode + "</b> · 加权计票=<b>" + (config.useWeights ? 'on' : 'off') +
         "</b> · ui=" + JSON.stringify(config.ui));

@@ -93,7 +93,7 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 | `personasDir` | `''` | 人格外部文件目录，空 = 只用内置 |
 | `criticalKeywords` | 内置词表 | 命中即升级为 `critical` |
 | `llmMode` / `ledgerDir` / `historyLimit` | `live` / `.magi` / `50` | 桩模型离线自检 / 账本目录 / 历史条数 |
-| `ui.crtEffects` / `ui.sound` / `ui.bootSequence` | `true` / `false` / `false` | 界面动效（音效与开机自检已实现、默认关闭） |
+| `ui.crtEffects` / `ui.bootSequence` | `true` / `false` | 界面动效开关（`bootSequence` 目前还没有对应实现） |
 
 其余字段（`timeoutMs`、`maxTokens`、`passTemperature`、`useWeights`、`stubDelayMs`…）见 `lib/config.js`。
 
@@ -137,4 +137,4 @@ NODE="C:\Users\<你>\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin
 ## 合规与许可
 
 MAGI / NERV / 三贤人 的名称与人设属**致敬性引用**；本插件不含任何官方图像、字体、音频或模型素材，
-界面全部用 CSS / SVG 自绘（音效也是 Web Audio 现场合成）。MIT。
+界面全部用 CSS / SVG 自绘，不含任何音频。MIT。

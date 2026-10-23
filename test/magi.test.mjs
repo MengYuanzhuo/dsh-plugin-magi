@@ -31,15 +31,19 @@ const reject = (p) => opinion(p.unit, 'reject')
  * `{ kind }`，思维链走 `reasoning-delta`（必须被忽略），正文分片走 `text-delta`。
  * 可指定哪些单元失败、以及各单元投什么。
  */
-function makeFakeLlm({ failUnits = [], stanceFor, includeReasoning = true } = {}) {
+function makeFakeLlm({ failUnits = [], stanceFor, includeReasoning = true, payloadFor } = {}) {
+  const callCounts = new Map()
   return {
     llm: {
       stream(options) {
         const system = String(options?.system ?? '')
         const unit = PERSONAS.find((persona) => system.includes(persona.unit))?.unit ?? 'UNKNOWN'
         if (failUnits.includes(unit)) throw new Error(`模拟失败：${unit}`)
+        const callIndex = callCounts.get(unit) ?? 0
+        callCounts.set(unit, callIndex + 1)
+        const custom = typeof payloadFor === 'function' ? payloadFor(unit, callIndex) : null
         const stance = typeof stanceFor === 'function' ? stanceFor(unit) : 'approve'
-        const payload = JSON.stringify({
+        const payload = JSON.stringify(custom ?? {
           stance,
           confidence: 0.7,
           reason: `${unit} 的理由`,
@@ -190,6 +194,27 @@ test('config：只给 provider 不给 model 时忽略 provider', () => {
   assert.ok(warnings.some((w) => w.includes('model')))
 })
 
+test('config：abilities 默认启用，越界值回落并告警', () => {
+  const defaults = normalizeConfig({}).config
+  assert.equal(defaults.abilities.enabled, true)
+  assert.equal(defaults.abilities.maxToolCallsPerUnit, 2)
+
+  const { config, warnings } = normalizeConfig({
+    abilities: {
+      enabled: true,
+      maxToolCallsPerUnit: 99,
+      scriptTimeoutMs: 1,
+      maxOutputChars: 10,
+      labDir: ' my-lab ',
+    },
+  })
+  assert.equal(config.abilities.maxToolCallsPerUnit, DEFAULT_CONFIG.abilities.maxToolCallsPerUnit)
+  assert.equal(config.abilities.scriptTimeoutMs, DEFAULT_CONFIG.abilities.scriptTimeoutMs)
+  assert.equal(config.abilities.maxOutputChars, DEFAULT_CONFIG.abilities.maxOutputChars)
+  assert.equal(config.abilities.labDir, 'my-lab')
+  assert.ok(warnings.some((w) => w.includes('abilities.maxToolCallsPerUnit')))
+})
+
 /* ------------------------------ 模型输出解析 ------------------------------- */
 
 test('extractJsonObject：容忍代码围栏与前后文字', () => {
@@ -314,6 +339,42 @@ test('账本：损坏行不影响读取', async () => {
     const items = await ledger.read(10)
     assert.equal(items.length, 1)
     assert.equal(items[0].key, 'magi-0001-aaaaaa')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('账本：手动清空记录与索引，但不回收已发出的编号', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'magi-ledger-clear-'))
+  try {
+    const ledger = new Ledger({ dir })
+    assert.equal(await ledger.nextSeq(), 1)
+    assert.equal(await ledger.nextSeq(), 2)
+    await ledger.append({ key: 'magi-0001-aaaaaa', id: 'MAGI-DECISION No.0001', seq: 1, createdAt: '2026-01-01T00:00:00Z', verdict: 'APPROVE', criticality: 'normal', tally: { approve: 3, reject: 0 }, question: 'q1' })
+    await ledger.append({ key: 'magi-0002-bbbbbb', id: 'MAGI-DECISION No.0002', seq: 2, createdAt: '2026-01-01T00:01:00Z', verdict: 'VETO', criticality: 'critical', tally: { approve: 1, reject: 2 }, question: 'q2' })
+
+    const cleared = await ledger.clear()
+    assert.deepEqual(cleared, { removed: 2, lastSeq: 2 })
+    assert.deepEqual(await ledger.read(10), [])
+    assert.deepEqual(await ledger.summary(10), [])
+
+    // 再清一次：0 条，不报错
+    assert.deepEqual(await ledger.clear(), { removed: 0, lastSeq: 2 })
+
+    // 编号继续递增，不回到 0001
+    assert.equal(await ledger.nextSeq(), 3)
+    await ledger.append({ key: 'magi-0003-cccccc', id: 'MAGI-DECISION No.0003', seq: 3, createdAt: '2026-01-01T00:02:00Z', verdict: 'REJECT', criticality: 'normal', tally: { approve: 1, reject: 2 }, question: 'q3' })
+    const after = await ledger.read(10)
+    assert.equal(after.length, 1)
+    assert.equal(after[0].key, 'magi-0003-cccccc')
+    // 索引摘要同步补上 seq 与票数
+    const summary = await ledger.summary(10)
+    assert.equal(summary[0].seq, 3)
+    assert.deepEqual(summary[0].tally, { approve: 1, reject: 2 })
+
+    const reopened = new Ledger({ dir })
+    assert.equal(await reopened.nextSeq(), 4)
+    assert.equal((await reopened.summary(10)).length, 1)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -492,6 +553,105 @@ test('端到端（假 LLM）：模型坚持弃权时折算为拒否，而不是�
     assert.equal(result.tally.approve, 0)
     assert.ok(result.opinions.every((o) => o.coercedFromAbstention === true))
     assert.ok(result.opinions.every((o) => o.error === undefined), '这不是调用失败，而是按规则折算')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('端到端（假 LLM）：CASPER-3 可以先做欲望读数，再给出最终意见', async () => {
+  const ctx = makeFakeLlm({
+    stanceFor: (unit) => (unit === 'CASPER-3' ? 'reject' : 'approve'),
+    payloadFor: (unit, callIndex) => {
+      if (unit !== 'CASPER-3' || callIndex > 0) return null
+      return {
+        action: 'tool',
+        tool: 'desire_map',
+        note: '两个选项都想要，我先看清自己在要什么',
+        args: {
+          question: '要不要现在定下来',
+          options: [
+            { id: 'A', label: '现在答应', fit: 'partial', violatesRefusal: false, price: '一次难看的对话' },
+            { id: 'B', label: '继续等', fit: 'high', violatesRefusal: false, price: '关系可能冷下来' },
+          ],
+          want: '不再被当成可以随时推迟的人',
+          wantBehindWant: '我的时间也算数',
+          price: '一次难看的对话，但不替别人通宵',
+          refusals: ['不接受事后被说成是我自己同意的'],
+          owner: 'mine',
+          visibility: 'yes',
+          affect: '想到答应胃是紧的，想到拒绝反而松一口气',
+          regret: { tenMinutes: '会有点怕', tenMonths: '会觉得自己清醒', tenYears: '会记得没有把自己卖便宜' },
+          forcedChoice: 'B',
+        },
+      }
+    },
+  })
+  const { run, dir } = await runFakeVote(ctx, { question: '要不要现在定下来' }, {
+    abilities: { enabled: true, maxToolCallsPerUnit: 2 },
+  })
+  try {
+    const result = await run()
+    const casper = result.opinions.find((opinion) => opinion.unit === 'CASPER-3')
+    assert.equal(casper.tool_calls.length, 1)
+    assert.equal(casper.tool_calls[0].tool, 'desire_map')
+    assert.equal(casper.tool_calls[0].status, 'ok')
+    assert.equal(casper.tool_calls[0].note, '两个选项都想要，我先看清自己在要什么')
+    assert.equal(casper.tool_calls[0].readout.want, '不再被当成可以随时推迟的人')
+    assert.equal(casper.tool_calls[0].readout.forcedChoice, 'B')
+    assert.ok(!casper.reason.includes('"action"'), '工具请求不应留在最终理由里')
+    assert.equal(casper.reason, 'CASPER-3 的理由')
+    assert.ok(result.notes.some((note) => note.includes('子功能')), 'notes 应记录子功能调用')
+    assert.equal(result.tally.reject, 1)
+    assert.equal(result.verdict, 'APPROVE')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('端到端（假 LLM）：MELCHIOR-1 可以跑 JavaScript 再给出意见', async () => {
+  const previous = process.env.MAGI_NODE
+  process.env.MAGI_NODE = process.execPath
+  const ctx = makeFakeLlm({
+    payloadFor: (unit, callIndex) => {
+      if (unit !== 'MELCHIOR-1' || callIndex > 0) return null
+      return { action: 'tool', tool: 'run_script', args: { engine: 'javascript', code: 'console.log(6 * 7)' } }
+    },
+  })
+  const { run, dir } = await runFakeVote(ctx, { question: '这个数算得对吗' }, {
+    abilities: { enabled: true, maxToolCallsPerUnit: 1, scriptTimeoutMs: 5000 },
+  })
+  try {
+    const result = await run()
+    const melchior = result.opinions.find((opinion) => opinion.unit === 'MELCHIOR-1')
+    assert.equal(melchior.tool_calls.length, 1)
+    assert.equal(melchior.tool_calls[0].tool, 'run_script')
+    assert.equal(melchior.tool_calls[0].engine, 'javascript')
+    assert.equal(melchior.tool_calls[0].status, 'ok')
+    assert.match(melchior.tool_calls[0].outputPreview, /42/)
+    assert.equal(melchior.reason, 'MELCHIOR-1 的理由')
+  } finally {
+    if (previous === undefined) delete process.env.MAGI_NODE
+    else process.env.MAGI_NODE = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('端到端（假 LLM）：abilities.enabled=false 时工具请求按格式错误降级', async () => {
+  const ctx = makeFakeLlm({
+    payloadFor: (unit) => (unit === 'CASPER-3'
+      ? { action: 'tool', tool: 'desire_map', args: {} }
+      : null),
+  })
+  const { run, dir } = await runFakeVote(ctx, { question: '要不要现在定下来' }, {
+    abilities: { enabled: false },
+  })
+  try {
+    const result = await run()
+    const casper = result.opinions.find((opinion) => opinion.unit === 'CASPER-3')
+    assert.equal(casper.degraded, true)
+    assert.equal(casper.tool_calls.length, 0)
+    assert.match(casper.reason, /拒否/)
+    assert.equal(result.verdict, 'APPROVE', '另外两票赞成仍按多数决通过')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

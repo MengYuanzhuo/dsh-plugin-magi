@@ -20,7 +20,7 @@ import { normalizeConfig } from './lib/config.js'
 import { Ledger } from './lib/ledger.js'
 import { createBus } from './lib/bus.js'
 import { createVoteRunner } from './lib/vote.js'
-import { describeContract, describePersonas, exportPersonaFiles } from './lib/persona-files.js'
+import { describePersonaSet, exportPersonaFiles } from './lib/persona-files.js'
 
 export const name = 'magi'
 // agentDefaultModel 必须显式注入：cordis 里访问未注入的服务会直接抛
@@ -124,11 +124,7 @@ export function apply(ctx, rawConfig) {
         const result = await exportPersonaFiles(config.personasDir, { force: args?.force === true })
         return { ...result, hint: '编辑这些 .md 文件即可调整人格，下一次表决生效；文件优先于内置默认。' }
       }
-      return {
-        dir: config.personasDir || null,
-        units: await describePersonas(config.personasDir, { logger }),
-        contract: await describeContract(config.personasDir, { logger }),
-      }
+      return describePersonaSet(config, { logger })
     },
   }))
 

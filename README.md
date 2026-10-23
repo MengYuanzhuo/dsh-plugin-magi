@@ -83,6 +83,56 @@ magi_personas(action?, force?)                        查看 / 导出人格
 界面文案以中文为主，只保留少数原作写法：`承認 / 拒否 / 否決`、`MAGI SYSTEM`、`VOTE / CONF / ELAPSED /
 UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 
+### 人格文件（点盾形查看 / 编辑）
+
+端末模式的**三块盾形可点击**（键盘 `Tab` 聚焦后 `Enter` / 空格同样可用）：弹出该单元当前生效的 md 人格文件。
+弹层用粗绿边框 + 黑底绿字，正文比詳細模式再大一号；查看态只有「关闭」「修改」两个选项。
+
+- 「修改」进入同色系的等宽 textarea；编辑完可以「保存」或「不保存」。
+- 保存写回 `<personasDir>/<melchior|balthasar|casper>.md`，**下一次表决立即生效**，不需要重启。
+- 「不保存」丢弃草稿、恢复原文；编辑态按 `Esc` 不会关闭弹层，避免误丢修改。
+- 未配置 `personasDir` 时只能查看内置默认，「修改」按钮禁用。
+
+### 三台独立的子功能
+
+每台单元在给出最终意见之前，都可以调用**只属于自己**的子功能。调用写进 JSON 契约：
+单元先输出 `{"action":"tool","tool":"…","args":{…}}`，编排层执行后把结果回注，再让它输出最终意见。
+每家默认最多 2 次；子功能调用会记进结果的 `tool_calls` 与账本，詳細模式可展开查看输出。
+
+| 单元 | 子功能 | 用途 | 实现 |
+| --- | --- | --- | --- |
+| `MELCHIOR-1` 科学家 | `run_script` | 跑分析脚本：核对数量级、模拟、检查环境 | Python / JavaScript / PowerShell / Bash / Batch / VBS / .NET |
+| `BALTHASAR-2` 母亲 | `compose_text` | 起草通知、信件、声明、清单、备忘、摘要 | 模板化 Markdown / 纯文本，落盘到 `<ledgerDir>/drafts/` |
+| `CASPER-3` 女人 | `desire_map` | 欲望读数：想要什么、想要背后的想要、价格、底线、所有权、十年回看 | 结构化一致性检查；只在两个选项真正打平时允许 `tieBreak` 抽签当镜子 |
+
+- **尽量免安装**：Python / JavaScript 优先用 DSH 自带运行时；PowerShell / Batch / VBS 用 Windows 自带；
+  .NET 是把 C# 源码交给 PowerShell `Add-Type` 编译执行；Bash 需要 Git Bash 或 Unix bash。
+  当前机器上哪些引擎可用，会实时写进该单元的系统提示词。
+- **脚本隔离**：每次执行落在 `<ledgerDir>/lab/run-…/` 独立目录，cwd 固定在那里；单次默认 15 秒超时并杀进程树；
+  stdout+stderr 截断到 8000 字，超过 4 倍上限直接终止；环境变量走白名单，不把 DSH/API 凭据传给脚本。
+- **总开关**：`abilities.enabled: false` 会同时关闭提示词里的子功能段与执行入口，回到纯三票表决。
+- ⚠️ 这不是安全沙箱：脚本以当前用户权限运行。只让它做分析计算，不要在里面放密钥；
+  不需要时请关闭 `abilities`。
+
+### 历史记录（账本）
+
+每次表决都会立即落盘，不依赖界面是否还开着：
+
+| 文件（`<workspace>/.magi/`，可用 `ledgerDir` 改） | 内容 |
+| --- | --- |
+| `ledger.jsonl` | 一条表决一行完整 JSON：议题、背景、三份原始意见、计票、判决、耗时、人格哈希 |
+| `ledger.index.json` | 最近 500 条的摘要索引：`key / id / seq / 判决 / 档位 / 票数 / 时间 / 议题前 120 字` |
+| `counter.json` | 决策编号计数器（`MAGI-DECISION No.000N`） |
+
+读取方式有三种：工具 `magi_history(limit?, key?)`、HTTP `GET /magi/api/history`（摘要 + 完整记录）
+与 `GET /magi/api/result?id=<key>`（单条），以及**端末模式的「历史」抽屉**：
+
+- 按钮在端末模式顶部中间；抽屉按条列出最近的记录（编号 / 判决 / 票数 / 档位 / 时间 / 议题缩略）。
+- 点任一条 → 载入该次决议并切到**詳細模式**看三份意见全文；`Esc` 或「关闭」关闭。
+- 「清空历史」需要**连点两次确认**（5 秒内），或直接 `DELETE /magi/api/history`。
+  清空只删除 `ledger.jsonl` 与 `ledger.index.json` 的内容；`counter.json` **保留**，
+  已发出的决策编号不回收，清空后下一条继续按 `No.000N+1` 递增。
+
 ## 配置
 
 改 `cordis.patch.yml` 里那一行的 `config`：
@@ -93,6 +143,7 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 | `personasDir` | `''` | 人格外部文件目录，空 = 只用内置 |
 | `criticalKeywords` | 内置词表 | 命中即升级为 `critical` |
 | `llmMode` / `ledgerDir` / `historyLimit` | `live` / `.magi` / `50` | 桩模型离线自检 / 账本目录 / 历史条数 |
+| `abilities` | 开启，2 次 / 15s / 8000 字 | 子功能总开关与限制：`enabled`、`maxToolCallsPerUnit`、`scriptTimeoutMs`、`maxOutputChars`、`labDir`、`draftsDir` |
 | `ui.crtEffects` / `ui.bootSequence` | `true` / `false` | 界面动效开关（`bootSequence` 目前还没有对应实现） |
 
 其余字段（`timeoutMs`、`maxTokens`、`passTemperature`、`useWeights`、`stubDelayMs`…）见 `lib/config.js`。
@@ -113,6 +164,8 @@ magi_personas(action="show")     # 看当前生效的是内置还是文件，以
 文件缺失时静默使用内置；读取失败或内容为空则回退内置并**显式告警**。
 每票都记录人格与契约的 sha256，人格变更会在结果 `notes` 里写明。
 
+除了直接改文件，也可以在端末模式点盾形 →「修改」在界面里编辑并保存（见上一节）。
+
 ## 开发
 
 本仓库就是插件包（仓库根即 `package.json` 所在目录）。DSH 桌面版不把 `node` 放进 PATH，用自带运行时：
@@ -120,14 +173,15 @@ magi_personas(action="show")     # 看当前生效的是内置还是文件，以
 ```bash
 NODE="C:\Users\<你>\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
 
-& $NODE test\magi.test.mjs          # 41 项：计票 / 加权 / 敏感词 / 配置 / 账本 / 桩模型端到端 / 失败降级
-& $NODE test\api.test.mjs           # 9 项：路由
-& $NODE test\personas.test.mjs      # 8 项：人格外部文件层
+& $NODE test\magi.test.mjs          # 46 项：计票 / 加权 / 敏感词 / 配置 / 账本（含清空） / 子功能回合 / 桩模型端到端 / 失败降级
+& $NODE test\api.test.mjs           # 14 项：路由（含清空、人格保存与跨站拒绝）
+& $NODE test\personas.test.mjs      # 9 项：人格外部文件层（含手动保存与缓存失效）
+& $NODE test\abilities.test.mjs     # 13 项：欲望读数 / 文本起草 / 脚本运行 / 能力注册表
 & $NODE tools\magi-dev-server.mjs --port 8790                 # 离线开发服务器（桩模型，不联网）+ 预览页
 & $NODE tools\sse-smoke.mjs --port 8790 --question "…"        # 协议冒烟
 ```
 
-面板与卡片走 `/magi/api/*`（`vote` / `events` / `history` / `result` / `config` / `debug`），实现见 `lib/api.js`。
+面板与卡片走 `/magi/api/*`（`vote` / `events` / `history` / `history DELETE` / `result` / `config` / `personas` / `persona POST` / `debug`），实现见 `lib/api.js`。
 预览页要用的 React（`preview\vendor\`）不随仓库分发，克隆后先跑 `node tools\extract-host-react.cjs`
 从本机 DSH 的 `app.asar` 现场生成。
 

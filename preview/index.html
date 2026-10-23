@@ -148,13 +148,122 @@
   window.EventSource = FakeEventSource;
 
   // ---- fetch shim --------------------------------------------------------
+  var historyCleared = false;
+  window.__magiResetHistory = function () { historyCleared = false; };
+  function historySummaryOf(result) {
+    return {
+      key: result.key || result.id,
+      id: result.id,
+      seq: result.seq,
+      createdAt: result.createdAt,
+      verdict: result.verdict,
+      criticality: result.criticality,
+      tally: result.tally,
+      question: result.question
+    };
+  }
+
+  // ---- fake persona files（离线预览里也能点开盾形查看 / 编辑）-------------
+  var personaDir = "D:\\MAGI\\personas";
+  var personaPrompts = {
+    "MELCHIOR-1": {
+      attribute: "科学家", fileKey: "melchior", source: "builtin",
+      prompt: "# MELCHIOR-1 · 科学家\n\n## 我是谁\n我把一句话变成可以被检验的句子。\n\n## 我怎样判断\n先找基线，再定数量级，最后找最坏的失败。\n\n## 我会这样说\n「没有基线，这个提升读不出来。」"
+    },
+    "BALTHASAR-2": {
+      attribute: "母亲", fileKey: "balthasar", source: "builtin",
+      prompt: "# BALTHASAR-2 · 母亲\n\n## 我是谁\n我先找那个要为它付出代价的人。\n\n## 我怎样判断\n谁付代价、可不可逆、十年后手里剩下什么。\n\n## 我会这样说\n「要做可以，先把回滚路径写出来。」"
+    },
+    "CASPER-3": {
+      attribute: "女人", fileKey: "casper", source: "builtin",
+      prompt: "# CASPER-3 · 女人\n\n## 我是谁\n我说不出完整的理由，但我知道自己想不想要。\n\n## 我怎样判断\n先看这件事让我舒不舒服，再看我在不在意。\n\n## 我会这样说\n「我不想再拖了，但我想先告诉他们一声。」"
+    }
+  };
+  window.__magiPersonaPrompts = personaPrompts;
+
+  function personaList() {
+    return Object.keys(personaPrompts).map(function (unit) {
+      var entry = personaPrompts[unit];
+      var path = entry.source === "file" ? personaDir + "\\" + entry.fileKey + ".md" : undefined;
+      return {
+        unit: unit, attribute: entry.attribute, fileKey: entry.fileKey,
+        source: entry.source, path: path, sha256: "demo-" + entry.fileKey,
+        chars: entry.prompt.length, preview: entry.prompt.split("\n")[0].slice(0, 40),
+        prompt: entry.prompt
+      };
+    });
+  }
+
   window.fetch = function (url, init) {
     var method = (init && init.method) || "GET";
+    var target = String(url);
     log("fetch <b>" + method + "</b> " + url);
-    if (String(url).indexOf("/magi/api/history") === 0) {
-      return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ items: [window.__magiScenario.normal.result] }); } });
+    if (target.indexOf("/magi/api/personas") === 0) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: function () {
+          return Promise.resolve({
+            dir: personaDir,
+            units: personaList(),
+            contract: { fileKey: "contract", source: "builtin", sha256: "demo-contract", chars: 0, prompt: "" }
+          });
+        }
+      });
     }
-    if (String(url).indexOf("/magi/api/vote") === 0) {
+    if (target.indexOf("/magi/api/persona") === 0) {
+      var personaBody = {};
+      try { personaBody = JSON.parse((init && init.body) || "{}"); } catch (error) { personaBody = {}; }
+      var unit = personaBody.unit;
+      var text = personaBody.text;
+      var entry = personaPrompts[unit];
+      if (entry === undefined) {
+        return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: "未知单元" }); } });
+      }
+      if (typeof text !== "string" || text.trim() === "") {
+        return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: "人格内容不能为空" }); } });
+      }
+      entry.prompt = text.trim();
+      entry.source = "file";
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: function () {
+          return Promise.resolve({
+            saved: true, unit: unit, fileKey: entry.fileKey, source: "file",
+            path: personaDir + "\\" + entry.fileKey + ".md",
+            sha256: "demo-saved", chars: entry.prompt.length, prompt: entry.prompt
+          });
+        }
+      });
+    }
+    if (target.indexOf("/magi/api/history") === 0) {
+      if (method === "DELETE") {
+        historyCleared = true;
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: function () { return Promise.resolve({ cleared: true, removed: 2, nextSeq: 43 }); }
+        });
+      }
+      var limit = 50;
+      var match = /[?&]limit=(\d+)/.exec(target);
+      if (match !== null) limit = Number(match[1]);
+      var all = historyCleared ? [] : [window.__magiScenario.normal.result, window.__magiScenario.critical.result];
+      var items = all.slice(0, limit);
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: function () { return Promise.resolve({ items: items, summary: items.map(historySummaryOf) }); }
+      });
+    }
+    if (target.indexOf("/magi/api/result") === 0) {
+      var wanted = /[?&]id=([^&]*)/.exec(target);
+      var id = wanted === null ? "" : decodeURIComponent(wanted[1]);
+      var found = [window.__magiScenario.normal.result, window.__magiScenario.critical.result].filter(function (result) {
+        return result.id === id || result.key === id;
+      })[0];
+      return Promise.resolve(found === undefined
+        ? { ok: false, status: 404, json: function () { return Promise.resolve({ error: "not found" }); } }
+        : { ok: true, status: 200, json: function () { return Promise.resolve(found); } });
+    }
+    if (target.indexOf("/magi/api/vote") === 0) {
       var body = {};
       try { body = JSON.parse((init && init.body) || "{}"); } catch (error) { body = {}; }
       var id = "MAGI-DECISION No.0099";
@@ -205,6 +314,12 @@
       key_factors: ["灰度开关已具备", "回滚路径 < 5 分钟", "观测指标齐备"],
       risks: ["并发写入尾延迟未压测", "旧版本客户端缓存可能读到新 schema"],
       caveats: "限流阈值需要在上线前重新标定。",
+      tool_calls: [{
+        tool: "run_script", engine: "python", status: "ok", exitCode: 0, durationMs: 840,
+        summary: "Python 执行完成，退出码 0，840ms，输出 64 字",
+        outputPreview: "baseline_p95 = 210ms\ncanary_p95 = 128ms\ndelta = -82ms",
+        codePreview: "print(f'baseline_p95 = {210}ms')"
+      }],
       latencyMs: 2140, tokens: { input: 812, output: 264 }
     },
     balthasar: {
@@ -213,6 +328,12 @@
       key_factors: ["数据丢失不可逆", "外部消费方未同步升级", "回滚不能恢复已丢失写入"],
       risks: ["历史账目静默损坏", "受影响方在事后才知情"],
       caveats: "若能先冻结写入一小时做全量备份，我会重新评估。",
+      tool_calls: [{
+        tool: "compose_text", status: "ok", durationMs: 12,
+        summary: "通知《上线前给外部消费方的告知》已写入 D:\\MAGI\\drafts\\20260211-通知-4f2a.md（420 字，2 段）",
+        path: "D:\\MAGI\\drafts\\20260211-通知-4f2a.md",
+        outputPreview: "# 上线前给外部消费方的告知\n\n> 类型：通知 · 对象：外部消费方 · 语气：温和\n\n## 我们会做什么\n在切换前 24 小时通知你们。"
+      }],
       latencyMs: 2870, tokens: { input: 833, output: 301 }
     },
     casper: {
@@ -221,6 +342,25 @@
       key_factors: ["讨论已停滞三周", "团队士气与信任在流失", "主观上认为风险可控"],
       risks: ["告知不足会伤害合作关系", "决策偏快可能忽略细节"],
       caveats: "我对数据完整性的判断不如 MELCHIOR-1 有把握。",
+      tool_calls: [{
+        tool: "desire_map", status: "ok", durationMs: 2,
+        note: "我不想再拖了，但我想先看清自己是在要上线，还是在要结束这件事",
+        summary: "欲望读数：想要「不再被这件事拖着」；价格「一次难看的对话」；底线 1 条；所有权 mine；选择 A",
+        readout: {
+          want: "不再被这件事拖着",
+          wantBehindWant: "我想证明我的时间也算数",
+          price: "一次难看的对话，但不替别人通宵",
+          refusals: ["不接受事后被说成是我自己同意的"],
+          owner: "mine",
+          borrowedFrom: "",
+          visibility: "yes",
+          affect: "想到继续拖，胃是紧的；想到现在定下来，反而松一口气",
+          forcedChoice: "A",
+          tie: false,
+          flags: [],
+          tieBreak: null
+        }
+      }],
       latencyMs: 1980, tokens: { input: 806, output: 240 }
     }
   };
@@ -440,6 +580,7 @@
 
   function replay() {
     log("──────── replay ────────");
+    if (typeof window.__magiResetHistory === "function") window.__magiResetHistory();
     streams.slice().forEach(function (stream) { stream.close(); });
     streams.length = 0;
     mount();

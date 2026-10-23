@@ -97,6 +97,11 @@
   }
 
   var ui = { crtEffects: true };
+  // 开发辅助：?history=1 直接以端末模式打开并展开历史抽屉，便于自动截图 / 冒烟
+  var openHistory = new URLSearchParams(window.location.search).get("history") === "1";
+  if (openHistory) {
+    try { window.localStorage.setItem("magi-panel-mode", "terminal"); } catch (error) { /* ignore */ }
+  }
 
   // 先确认服务器在，再渲染（顺便展示 /magi/api/config 的真实返回）
   fetch("/magi/api/config")
@@ -119,6 +124,20 @@
       var root = window.ReactDOM.createRoot(document.getElementById("root"));
       root.render(window.React.createElement(panel.Comp, { ui: ui }));
       window.__magiRegistrations = registrations;
+      if (openHistory) {
+        var attempts = 0;
+        var timer = window.setInterval(function () {
+          var toggle = document.querySelector("[data-magi-history-toggle]");
+          if (toggle !== null) {
+            toggle.click();
+            window.clearInterval(timer);
+          } else {
+            attempts += 1;
+            if (attempts > 50) window.clearInterval(timer);
+          }
+        }, 100);
+        window.__magiOpenHistoryTimer = timer;
+      }
     });
 })();
 </script>

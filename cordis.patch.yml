@@ -20,6 +20,15 @@
         # 本机若要启用：改成绝对路径，例如 'D:\MAGI\personas'
         personasDir: ''
         historyLimit: 50
+        # 三台单元各自的子功能（MELCHIOR 跑分析脚本 / BALTHASAR 起草文本 / CASPER 欲望读数）
+        # enabled=false 可整体关闭；脚本以当前用户权限运行，默认只跑分析代码
+        abilities:
+          enabled: true
+          maxToolCallsPerUnit: 2
+          scriptTimeoutMs: 15000
+          maxOutputChars: 8000
+          labDir: ''          # 空 = <ledgerDir>/lab
+          draftsDir: ''       # 空 = <ledgerDir>/drafts
         ui:
           crtEffects: true
           bootSequence: false

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-magi",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "MAGI（三贤人）决策系统 —— 三台独立人格单元各自表决，敏感/重要事项需三票一致。",
@@ -73,7 +73,7 @@
   ],
   "scripts": {
     "test": "node --test test/",
-    "check": "node test/magi.test.mjs && node test/api.test.mjs && node test/personas.test.mjs",
+    "check": "node test/magi.test.mjs && node test/api.test.mjs && node test/personas.test.mjs && node test/abilities.test.mjs",
     "dev": "node tools/magi-dev-server.mjs"
   }
 }

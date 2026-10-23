@@ -18,6 +18,7 @@ import {
   personaFilePath,
   resolveContractPrompt,
   resolvePersonaPrompt,
+  savePersonaText,
 } from '../lib/persona-files.js'
 
 const melchior = PERSONAS[0]
@@ -153,6 +154,39 @@ test('buildSystemPrompt：契约可被覆盖，默认拼内置契约', () => {
   const overridden = buildSystemPrompt(PERSONAS[0], { criticality: 'normal' }, { contract: '覆盖后的契约' })
   assert.ok(overridden.trim().endsWith('覆盖后的契约'))
   assert.ok(!overridden.includes('说话方式'), '覆盖后不应再拼内置契约')
+})
+
+test('手动保存：写回单元 md，缓存立即失效，下一次表决读到新正文', async () => {
+  const dir = await makeDir()
+  try {
+    const before = await resolvePersonaPrompt(dir, melchior, {})
+    assert.equal(before.source, 'builtin')
+
+    const saved = await savePersonaText(dir, melchior.unit, '# 我的人格\n第一行')
+    assert.equal(saved.source, 'file')
+    assert.equal(saved.unit, 'MELCHIOR-1')
+    assert.equal(saved.path, personaFilePath(dir, melchior))
+    assert.equal(saved.chars, '# 我的人格\n第一行'.length)
+    assert.match(saved.sha256, /^[0-9a-f]{64}$/)
+
+    const after = await resolvePersonaPrompt(dir, melchior, {})
+    assert.equal(after.source, 'file')
+    assert.equal(after.prompt, '# 我的人格\n第一行')
+    assert.equal((await readFile(saved.path, 'utf8')), '# 我的人格\n第一行\n')
+
+    // 同长度覆盖：即使 mtime/size 没变，也必须读到新内容（保存时显式清缓存）
+    await savePersonaText(dir, melchior.unit, 'AAAA')
+    assert.equal((await resolvePersonaPrompt(dir, melchior, {})).prompt, 'AAAA')
+    await savePersonaText(dir, melchior.unit, 'BBBB')
+    assert.equal((await resolvePersonaPrompt(dir, melchior, {})).prompt, 'BBBB')
+
+    // 未知单元 / 空内容 / 未配置目录都拒绝写入
+    await assert.rejects(() => savePersonaText(dir, 'UNKNOWN', 'x'), /未知单元/)
+    await assert.rejects(() => savePersonaText(dir, melchior.unit, '   '), /不能为空/)
+    await assert.rejects(() => savePersonaText('', melchior.unit, 'x'), /personasDir/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('describePersonas：报告来源、哈希与字数', async () => {

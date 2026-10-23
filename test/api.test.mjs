@@ -6,6 +6,9 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createApi, API_PATHS } from '../lib/api.js'
 import { normalizeConfig } from '../lib/config.js'
@@ -34,8 +37,17 @@ function makeRes() {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
+/** 等异步文件写入完成（最多 ~1s）。 */
+async function waitFor(predicate) {
+  for (let i = 0; i < 200; i += 1) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('等待异步操作超时')
+}
+
 function makeApi(overrides = {}) {
-  const calls = { read: [], summary: [], get: [], voted: [] }
+  const calls = { read: [], summary: [], get: [], voted: [], cleared: 0 }
   const ledger = {
     async read(limit) {
       calls.read.push(limit)
@@ -48,6 +60,10 @@ function makeApi(overrides = {}) {
     async get(key) {
       calls.get.push(key)
       return key === 'magi-0001-aaaaaa' ? { key, verdict: 'APPROVE' } : undefined
+    },
+    async clear() {
+      calls.cleared += 1
+      return { removed: 2, lastSeq: 7 }
     },
     ...overrides.ledger,
   }
@@ -114,6 +130,38 @@ test('history：非 GET 返回 405', async () => {
   api.history(makeReq({ method: 'POST', url: API_PATHS.history }), res)
   await tick()
   assert.equal(res.status, 405)
+})
+
+test('history：DELETE 手动清空并回传删除条数与当前编号', async () => {
+  const { api, calls } = makeApi()
+  const res = makeRes()
+  api.history(makeReq({ method: 'DELETE', url: API_PATHS.history, headers: { host: '127.0.0.1:8790' } }), res)
+  await tick()
+  assert.equal(res.status, 200)
+  assert.deepEqual(JSON.parse(res.body), { cleared: true, removed: 2, lastSeq: 7 })
+  assert.equal(calls.cleared, 1)
+  assert.deepEqual(calls.read, [], '清空不应顺带读取账本')
+})
+
+test('history：跨站 DELETE 被拒绝且不清空', async () => {
+  const { api, calls } = makeApi()
+  const res = makeRes()
+  api.history(makeReq({
+    method: 'DELETE',
+    url: API_PATHS.history,
+    headers: { host: '127.0.0.1:8790', origin: 'https://evil.example' },
+  }), res)
+  await tick()
+  assert.equal(res.status, 403)
+  assert.equal(calls.cleared, 0)
+})
+
+test('history：账本没有 clear 能力时返回 501 而不是 500', async () => {
+  const { api } = makeApi({ ledger: { clear: undefined } })
+  const res = makeRes()
+  api.history(makeReq({ method: 'DELETE', url: API_PATHS.history }), res)
+  await tick()
+  assert.equal(res.status, 501)
 })
 
 test('result：命中返回 200，未命中返回 404', async () => {
@@ -196,4 +244,85 @@ test('config：返回公开配置且不带敏感词表', async () => {
   assert.equal(config.useWeights, false)
   assert.equal(config.tieBreak, undefined, 'tieBreak 已取消（不存在平票）')
   assert.equal(config.criticalKeywords, undefined)
+})
+
+test('persona：POST 写入单元 md 并返回生效信息', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'magi-api-persona-'))
+  try {
+    const { api } = makeApi({ config: { personasDir: dir } })
+    const res = makeRes()
+    const body = JSON.stringify({ unit: 'MELCHIOR-1', text: '# 自定义\n内容' })
+    api.persona(makeReq({
+      method: 'POST',
+      url: API_PATHS.persona,
+      body,
+      headers: { host: '127.0.0.1:8790' },
+    }), res)
+    await waitFor(() => res.ended === true)
+    assert.equal(res.status, 200)
+    const payload = JSON.parse(res.body)
+    assert.equal(payload.saved, true)
+    assert.equal(payload.source, 'file')
+    assert.equal(payload.unit, 'MELCHIOR-1')
+    assert.equal(payload.fileKey, 'melchior')
+    assert.equal(payload.path, join(dir, 'melchior.md'))
+    assert.match(payload.sha256, /^[0-9a-f]{64}$/)
+    assert.equal(await readFile(join(dir, 'melchior.md'), 'utf8'), '# 自定义\n内容\n')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('persona：跨站 / 非 POST / 未配置 / 空内容 / 未知单元都被拒绝', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'magi-api-persona-bad-'))
+  try {
+    const { api } = makeApi({ config: { personasDir: dir } })
+    const crossSite = makeRes()
+    api.persona(makeReq({
+      method: 'POST',
+      url: API_PATHS.persona,
+      body: JSON.stringify({ unit: 'MELCHIOR-1', text: 'x' }),
+      headers: { host: '127.0.0.1:8790', origin: 'https://evil.example' },
+    }), crossSite)
+    await tick()
+    assert.equal(crossSite.status, 403)
+
+    const wrongMethod = makeRes()
+    api.persona(makeReq({ method: 'GET', url: API_PATHS.persona }), wrongMethod)
+    await tick()
+    assert.equal(wrongMethod.status, 405)
+
+    const empty = makeRes()
+    api.persona(makeReq({
+      method: 'POST',
+      url: API_PATHS.persona,
+      body: JSON.stringify({ unit: 'MELCHIOR-1', text: '   ' }),
+      headers: { host: '127.0.0.1:8790' },
+    }), empty)
+    await waitFor(() => empty.ended === true)
+    assert.equal(empty.status, 400)
+
+    const unknown = makeRes()
+    api.persona(makeReq({
+      method: 'POST',
+      url: API_PATHS.persona,
+      body: JSON.stringify({ unit: 'UNKNOWN', text: 'x' }),
+      headers: { host: '127.0.0.1:8790' },
+    }), unknown)
+    await waitFor(() => unknown.ended === true)
+    assert.equal(unknown.status, 400)
+
+    const noDir = makeApi()
+    const unset = makeRes()
+    noDir.api.persona(makeReq({
+      method: 'POST',
+      url: API_PATHS.persona,
+      body: JSON.stringify({ unit: 'MELCHIOR-1', text: 'x' }),
+      headers: { host: '127.0.0.1:8790' },
+    }), unset)
+    await tick()
+    assert.equal(unset.status, 400)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

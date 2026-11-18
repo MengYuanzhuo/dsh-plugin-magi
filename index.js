@@ -56,15 +56,15 @@ export const Config = z.object({
   }).default({ ...DEFAULT_CONFIG.weights }),
   llmMode: z.union([z.const('live'), z.const('stub')]).default(DEFAULT_CONFIG.llmMode),
   ledgerDir: z.string().default(DEFAULT_CONFIG.ledgerDir),
-  personasDir: z.string().default(DEFAULT_CONFIG.personasDir),
+  personasDir: z.string().default(DEFAULT_CONFIG.personasDir).volatile(),
   historyLimit: z.number().step(1).min(1).max(1_000).default(DEFAULT_CONFIG.historyLimit),
   criticalKeywords: z.array(z.string()).default([...DEFAULT_CONFIG.criticalKeywords]),
   ui: z.object({
-    crtEffects: z.boolean().default(DEFAULT_CONFIG.ui.crtEffects),
+    crtEffects: z.boolean().default(DEFAULT_CONFIG.ui.crtEffects).volatile(),
     bootSequence: z.boolean().default(DEFAULT_CONFIG.ui.bootSequence),
   }).default({ ...DEFAULT_CONFIG.ui }),
   abilities: z.object({
-    enabled: z.boolean().default(DEFAULT_CONFIG.abilities.enabled),
+    enabled: z.boolean().default(DEFAULT_CONFIG.abilities.enabled).volatile(),
     maxToolCallsPerUnit: z.number().step(1).min(0).max(4).default(DEFAULT_CONFIG.abilities.maxToolCallsPerUnit),
     scriptTimeoutMs: z.number().step(1).min(500).max(60_000).default(DEFAULT_CONFIG.abilities.scriptTimeoutMs),
     maxOutputChars: z.number().step(1).min(500).max(50_000).default(DEFAULT_CONFIG.abilities.maxOutputChars),
@@ -95,9 +95,63 @@ function resolveSessionId(exec) {
   return candidates.find((value) => typeof value === 'string' && value !== '')
 }
 
+/** Read a Schemastery volatile field's current value; plain values pass through. */
+function readLive(value, fallback) {
+  try {
+    if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+      const current = value.get()
+      return current === undefined ? fallback : current
+    }
+    return value === undefined ? fallback : value
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Keep the three fields exposed on the Plugins config page live: the schema marks
+ * them `.volatile()`, so a saved edit must reach the already-running plugin without
+ * remounting it. The normalized config keeps ordinary plain properties; these
+ * getters read the current volatile values where the rest of the code expects them.
+ */
+function attachLiveConfig(config, rawConfig) {
+  const raw = rawConfig !== null && typeof rawConfig === 'object' ? rawConfig : {}
+  const rawAbilities = raw.abilities !== null && typeof raw.abilities === 'object' ? raw.abilities : {}
+  const rawUi = raw.ui !== null && typeof raw.ui === 'object' ? raw.ui : {}
+  const fallbackPersonasDir = config.personasDir
+  const fallbackAbilitiesEnabled = config.abilities.enabled
+  const fallbackCrtEffects = config.ui.crtEffects
+
+  Object.defineProperty(config, 'personasDir', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      const value = readLive(raw.personasDir, fallbackPersonasDir)
+      return typeof value === 'string' ? value : fallbackPersonasDir
+    },
+  })
+  Object.defineProperty(config.abilities, 'enabled', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      const value = readLive(rawAbilities.enabled, fallbackAbilitiesEnabled)
+      return typeof value === 'boolean' ? value : fallbackAbilitiesEnabled
+    },
+  })
+  Object.defineProperty(config.ui, 'crtEffects', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      const value = readLive(rawUi.crtEffects, fallbackCrtEffects)
+      return typeof value === 'boolean' ? value : fallbackCrtEffects
+    },
+  })
+}
+
 export function apply(ctx, rawConfig) {
   const logger = ctx?.logger ?? console
   const { config, warnings } = normalizeConfig(rawConfig)
+  attachLiveConfig(config, rawConfig)
   for (const warning of warnings) logger.warn?.(`[magi] 配置提示：${warning}`)
 
   const ledger = new Ledger({ dir: resolve(process.cwd(), config.ledgerDir), historyLimit: config.historyLimit })

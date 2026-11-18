@@ -138,7 +138,7 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 **优先用插件管理页**：侧栏 **插件 → MAGI 三贤人 → `magi` 行 → 配置**。
 
 - 可直接改 `personasDir`（人格文件目录）、子功能总开关、CRT 扫描线；
-- 保存由宿主校验并写回当前 profile，插件会按新配置重启一次；
+- 保存由宿主校验并写回当前 profile，这三个字段是 volatile，保存后立即生效，不需要重启；
 - 插件半声明了 Schemastery `Config`，所以这些字段有校验和默认值，不需要手写 YAML。
 
 也可以直接改 `cordis.patch.yml` 里那一行的 `config`：

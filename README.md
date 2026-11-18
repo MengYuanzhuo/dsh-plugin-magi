@@ -135,7 +135,13 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 
 ## 配置
 
-改 `cordis.patch.yml` 里那一行的 `config`：
+**优先用插件管理页**：侧栏 **插件 → MAGI 三贤人 → `magi` 行 → 配置**。
+
+- 可直接改 `personasDir`（人格文件目录）、子功能总开关、CRT 扫描线；
+- 保存由宿主校验并写回当前 profile，插件会按新配置重启一次；
+- 插件半声明了 Schemastery `Config`，所以这些字段有校验和默认值，不需要手写 YAML。
+
+也可以直接改 `cordis.patch.yml` 里那一行的 `config`：
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -148,8 +154,8 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 
 其余字段（`timeoutMs`、`maxTokens`、`passTemperature`、`useWeights`、`stubDelayMs`…）见 `lib/config.js`。
 
-> ⚠️ 覆盖配置时要**重述整份 `config`**：Loader 的 patch 是整值替换、不做按键深合并，
-> 只写要改的那一项会让其余项回落默认。
+> ⚠️ 手改 YAML 时要**重述整份 `config`**：Loader 的 patch 是整值替换、不做按键深合并，
+> 只写要改的那一项会让其余项回落默认。用插件管理页的配置表单则不需要担心这一点。
 
 ## 人格可以随时改
 

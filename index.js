@@ -8,15 +8,17 @@
  * - HTTP/SSE 路由 `/magi/api/*`：给 Web GUI 面板与工具卡片用 —— 工具的执行体不会上线，
  *   所以客户端必须通过这些路由取数据（实现见 lib/api.js，离线开发服务器复用同一份）。
  *
- * 依赖策略：模块顶层只 import `@deepseek-ai/dsh-tools`；不导出 `Config`（Schemastery），
+ * 依赖策略：模块顶层 import `@deepseek-ai/dsh-tools` 与 `@deepseek-ai/schemastery`；
+ * 用 Schemastery 声明 `Config`，让 DSH 的插件管理页能渲染配置表单。
  * 其余不确定之处（消息工厂、模型路由、chunk 字段名）都在运行时探测并降级，见 lib/llm-bridge.js。
  */
 
 import { resolve } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import z from '@deepseek-ai/schemastery'
 
 import { createApi, API_PATHS } from './lib/api.js'
-import { normalizeConfig } from './lib/config.js'
+import { DEFAULT_CONFIG, normalizeConfig } from './lib/config.js'
 import { Ledger } from './lib/ledger.js'
 import { createBus } from './lib/bus.js'
 import { createVoteRunner } from './lib/vote.js'
@@ -26,6 +28,50 @@ export const name = 'magi'
 // agentDefaultModel 必须显式注入：cordis 里访问未注入的服务会直接抛
 // `cannot get property "agentDefaultModel" without inject`，而不是返回 undefined。
 export const inject = ['tools', 'llm', 'webServer', 'agentDefaultModel']
+
+/**
+ * 插件配置 schema。
+ *
+ * 声明 `Config` 后，DSH 会把这一行的配置暴露成可编辑表单：设置页的
+ * `plugins.row.config` 能拿到 `form.state` / `form.mutate`，保存时由宿主校验并
+ * 写回 profile 的用户补丁层。字段与 lib/config.js 的 DEFAULT_CONFIG 对齐。
+ */
+export const Config = z.object({
+  provider: z.string().default(DEFAULT_CONFIG.provider),
+  model: z.string().default(DEFAULT_CONFIG.model),
+  timeoutMs: z.number().step(1).min(1_000).max(600_000).default(DEFAULT_CONFIG.timeoutMs),
+  maxTokens: z.number().step(1).min(64).max(32_000).default(DEFAULT_CONFIG.maxTokens),
+  stubDelayMs: z.number().step(1).min(0).max(500).default(DEFAULT_CONFIG.stubDelayMs),
+  passTemperature: z.boolean().default(DEFAULT_CONFIG.passTemperature),
+  temperature: z.object({
+    melchior: z.number().min(0).max(2).default(DEFAULT_CONFIG.temperature.melchior),
+    balthasar: z.number().min(0).max(2).default(DEFAULT_CONFIG.temperature.balthasar),
+    casper: z.number().min(0).max(2).default(DEFAULT_CONFIG.temperature.casper),
+  }).default({ ...DEFAULT_CONFIG.temperature }),
+  useWeights: z.boolean().default(DEFAULT_CONFIG.useWeights),
+  weights: z.object({
+    melchior: z.number().min(0).default(DEFAULT_CONFIG.weights.melchior),
+    balthasar: z.number().min(0).default(DEFAULT_CONFIG.weights.balthasar),
+    casper: z.number().min(0).default(DEFAULT_CONFIG.weights.casper),
+  }).default({ ...DEFAULT_CONFIG.weights }),
+  llmMode: z.union([z.const('live'), z.const('stub')]).default(DEFAULT_CONFIG.llmMode),
+  ledgerDir: z.string().default(DEFAULT_CONFIG.ledgerDir),
+  personasDir: z.string().default(DEFAULT_CONFIG.personasDir),
+  historyLimit: z.number().step(1).min(1).max(1_000).default(DEFAULT_CONFIG.historyLimit),
+  criticalKeywords: z.array(z.string()).default([...DEFAULT_CONFIG.criticalKeywords]),
+  ui: z.object({
+    crtEffects: z.boolean().default(DEFAULT_CONFIG.ui.crtEffects),
+    bootSequence: z.boolean().default(DEFAULT_CONFIG.ui.bootSequence),
+  }).default({ ...DEFAULT_CONFIG.ui }),
+  abilities: z.object({
+    enabled: z.boolean().default(DEFAULT_CONFIG.abilities.enabled),
+    maxToolCallsPerUnit: z.number().step(1).min(0).max(4).default(DEFAULT_CONFIG.abilities.maxToolCallsPerUnit),
+    scriptTimeoutMs: z.number().step(1).min(500).max(60_000).default(DEFAULT_CONFIG.abilities.scriptTimeoutMs),
+    maxOutputChars: z.number().step(1).min(500).max(50_000).default(DEFAULT_CONFIG.abilities.maxOutputChars),
+    labDir: z.string().default(DEFAULT_CONFIG.abilities.labDir),
+    draftsDir: z.string().default(DEFAULT_CONFIG.abilities.draftsDir),
+  }).default({ ...DEFAULT_CONFIG.abilities }),
+})
 
 const VOTE_DESCRIPTION = [
   '把一件待决事项提交 MAGI（三贤人）表决，返回三台独立单元各自的判断、理由与最终判决。',

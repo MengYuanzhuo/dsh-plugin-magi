@@ -60,11 +60,15 @@ export const Config = z.object({
   historyLimit: z.number().step(1).min(1).max(1_000).default(DEFAULT_CONFIG.historyLimit),
   criticalKeywords: z.array(z.string()).default([...DEFAULT_CONFIG.criticalKeywords]),
   ui: z.object({
-    crtEffects: z.boolean().default(DEFAULT_CONFIG.ui.crtEffects).volatile(),
+    crtEffects: z.boolean().default(DEFAULT_CONFIG.ui.crtEffects),
     bootSequence: z.boolean().default(DEFAULT_CONFIG.ui.bootSequence),
   }).default({ ...DEFAULT_CONFIG.ui }),
   abilities: z.object({
+    // 旧版总开关：配置页不显示；保留为 volatile 以便旧的 enabled=false 能迁移。
     enabled: z.boolean().default(DEFAULT_CONFIG.abilities.enabled).volatile(),
+    runScript: z.boolean().default(DEFAULT_CONFIG.abilities.runScript).volatile(),
+    composeText: z.boolean().default(DEFAULT_CONFIG.abilities.composeText).volatile(),
+    desireMap: z.boolean().default(DEFAULT_CONFIG.abilities.desireMap).volatile(),
     maxToolCallsPerUnit: z.number().step(1).min(0).max(4).default(DEFAULT_CONFIG.abilities.maxToolCallsPerUnit),
     scriptTimeoutMs: z.number().step(1).min(500).max(60_000).default(DEFAULT_CONFIG.abilities.scriptTimeoutMs),
     maxOutputChars: z.number().step(1).min(500).max(50_000).default(DEFAULT_CONFIG.abilities.maxOutputChars),
@@ -109,18 +113,19 @@ function readLive(value, fallback) {
 }
 
 /**
- * Keep the three fields exposed on the Plugins config page live: the schema marks
- * them `.volatile()`, so a saved edit must reach the already-running plugin without
- * remounting it. The normalized config keeps ordinary plain properties; these
- * getters read the current volatile values where the rest of the code expects them.
+ * Keep the editable fields live: the schema marks them `.volatile()`, so a saved
+ * edit must reach the already-running plugin without remounting it. The normalized
+ * config keeps ordinary plain properties; these getters read the current volatile
+ * values where the rest of the code expects them.
  */
 function attachLiveConfig(config, rawConfig) {
   const raw = rawConfig !== null && typeof rawConfig === 'object' ? rawConfig : {}
   const rawAbilities = raw.abilities !== null && typeof raw.abilities === 'object' ? raw.abilities : {}
-  const rawUi = raw.ui !== null && typeof raw.ui === 'object' ? raw.ui : {}
   const fallbackPersonasDir = config.personasDir
   const fallbackAbilitiesEnabled = config.abilities.enabled
-  const fallbackCrtEffects = config.ui.crtEffects
+  const fallbackRunScript = config.abilities.runScript
+  const fallbackComposeText = config.abilities.composeText
+  const fallbackDesireMap = config.abilities.desireMap
 
   Object.defineProperty(config, 'personasDir', {
     enumerable: true,
@@ -130,22 +135,20 @@ function attachLiveConfig(config, rawConfig) {
       return typeof value === 'string' ? value : fallbackPersonasDir
     },
   })
-  Object.defineProperty(config.abilities, 'enabled', {
-    enumerable: true,
-    configurable: true,
-    get: function () {
-      const value = readLive(rawAbilities.enabled, fallbackAbilitiesEnabled)
-      return typeof value === 'boolean' ? value : fallbackAbilitiesEnabled
-    },
-  })
-  Object.defineProperty(config.ui, 'crtEffects', {
-    enumerable: true,
-    configurable: true,
-    get: function () {
-      const value = readLive(rawUi.crtEffects, fallbackCrtEffects)
-      return typeof value === 'boolean' ? value : fallbackCrtEffects
-    },
-  })
+  const bindAbility = (key, fallback) => {
+    Object.defineProperty(config.abilities, key, {
+      enumerable: true,
+      configurable: true,
+      get: function () {
+        const value = readLive(rawAbilities[key], fallback)
+        return typeof value === 'boolean' ? value : fallback
+      },
+    })
+  }
+  bindAbility('enabled', fallbackAbilitiesEnabled)
+  bindAbility('runScript', fallbackRunScript)
+  bindAbility('composeText', fallbackComposeText)
+  bindAbility('desireMap', fallbackDesireMap)
 }
 
 export function apply(ctx, rawConfig) {

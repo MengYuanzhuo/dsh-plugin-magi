@@ -110,9 +110,10 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
   当前机器上哪些引擎可用，会实时写进该单元的系统提示词。
 - **脚本隔离**：每次执行落在 `<ledgerDir>/lab/run-…/` 独立目录，cwd 固定在那里；单次默认 15 秒超时并杀进程树；
   stdout+stderr 截断到 8000 字，超过 4 倍上限直接终止；环境变量走白名单，不把 DSH/API 凭据传给脚本。
-- **总开关**：`abilities.enabled: false` 会同时关闭提示词里的子功能段与执行入口，回到纯三票表决。
+- **逐项开关**：`abilities.runScript` / `composeText` / `desireMap` 可以分别关闭对应单元的子功能，
+  关闭后该单元的提示词段落与执行入口同时停用；旧版的 `abilities.enabled: false` 仍作为总闸兼容。
 - ⚠️ 这不是安全沙箱：脚本以当前用户权限运行。只让它做分析计算，不要在里面放密钥；
-  不需要时请关闭 `abilities`。
+  不需要时请关闭对应单元的子功能。
 
 ### 历史记录（账本）
 
@@ -137,8 +138,9 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 
 **优先用插件管理页**：侧栏 **插件 → MAGI 三贤人 → `magi` 行 → 配置**。
 
-- 可直接改 `personasDir`（人格文件目录）、子功能总开关、CRT 扫描线；
-- 保存由宿主校验并写回当前 profile，这三个字段是 volatile，保存后立即生效，不需要重启；
+- 可直接改 `personasDir`（人格文件目录），并分别开关三台单元的子功能；
+- CRT 扫描线默认开启，不再提供开关；
+- 保存由宿主校验并写回当前 profile，`personasDir` 与三个子功能开关都是 volatile，保存后立即生效，不需要重启；
 - 插件半声明了 Schemastery `Config`，所以这些字段有校验和默认值，不需要手写 YAML。
 
 也可以直接改 `cordis.patch.yml` 里那一行的 `config`：
@@ -149,8 +151,8 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 | `personasDir` | `''` | 人格外部文件目录，空 = 只用内置 |
 | `criticalKeywords` | 内置词表 | 命中即升级为 `critical` |
 | `llmMode` / `ledgerDir` / `historyLimit` | `live` / `.magi` / `50` | 桩模型离线自检 / 账本目录 / 历史条数 |
-| `abilities` | 开启，2 次 / 15s / 8000 字 | 子功能总开关与限制：`enabled`、`maxToolCallsPerUnit`、`scriptTimeoutMs`、`maxOutputChars`、`labDir`、`draftsDir` |
-| `ui.crtEffects` / `ui.bootSequence` | `true` / `false` | 界面动效开关（`bootSequence` 目前还没有对应实现） |
+| `abilities` | 三台全开，2 次 / 15s / 8000 字 | 逐项开关与限制：`runScript`、`composeText`、`desireMap`、`maxToolCallsPerUnit`、`scriptTimeoutMs`、`maxOutputChars`、`labDir`、`draftsDir`；旧版 `enabled` 仍可作总闸 |
+| `ui.crtEffects` / `ui.bootSequence` | `true` / `false` | CRT 默认开启；`bootSequence` 目前还没有对应实现 |
 
 其余字段（`timeoutMs`、`maxTokens`、`passTemperature`、`useWeights`、`stubDelayMs`…）见 `lib/config.js`。
 
@@ -182,7 +184,7 @@ NODE="C:\Users\<你>\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin
 & $NODE test\magi.test.mjs          # 46 项：计票 / 加权 / 敏感词 / 配置 / 账本（含清空） / 子功能回合 / 桩模型端到端 / 失败降级
 & $NODE test\api.test.mjs           # 14 项：路由（含清空、人格保存与跨站拒绝）
 & $NODE test\personas.test.mjs      # 9 项：人格外部文件层（含手动保存与缓存失效）
-& $NODE test\abilities.test.mjs     # 13 项：欲望读数 / 文本起草 / 脚本运行 / 能力注册表
+& $NODE test\abilities.test.mjs     # 14 项：欲望读数 / 文本起草 / 脚本运行 / 能力注册表
 & $NODE tools\magi-dev-server.mjs --port 8790                 # 离线开发服务器（桩模型，不联网）+ 预览页
 & $NODE tools\sse-smoke.mjs --port 8790 --question "…"        # 协议冒烟
 ```

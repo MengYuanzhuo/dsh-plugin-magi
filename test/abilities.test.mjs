@@ -14,6 +14,7 @@ import { desireMap } from '../lib/desire-map.js'
 import { composeText } from '../lib/text-composer.js'
 import { listScriptEngines, runScript } from '../lib/script-runner.js'
 import {
+  abilityEnabled,
   abilityForUnit,
   describeAbilityForPrompt,
   executeAbility,
@@ -300,6 +301,21 @@ test('能力：提示词按单元注入，关闭后为空', () => {
 
   const disabled = normalizeConfig({ abilities: { enabled: false } }).config
   assert.equal(describeAbilityForPrompt('MELCHIOR-1', disabled), '')
+})
+
+test('能力：逐项开关只关闭对应单元，旧版总开关仍兼容', () => {
+  const perTool = normalizeConfig({ abilities: { runScript: false } }).config
+  assert.equal(abilityEnabled(perTool, 'run_script'), false)
+  assert.equal(abilityEnabled(perTool, 'compose_text'), true)
+  assert.equal(abilityEnabled(perTool, 'desire_map'), true)
+  assert.equal(describeAbilityForPrompt('MELCHIOR-1', perTool), '')
+  assert.match(describeAbilityForPrompt('BALTHASAR-2', perTool), /compose_text/)
+  assert.match(describeAbilityForPrompt('CASPER-3', perTool), /desire_map/)
+
+  const legacy = normalizeConfig({ abilities: { enabled: false } }).config
+  assert.equal(abilityEnabled(legacy, 'run_script'), false)
+  assert.equal(abilityEnabled(legacy, 'compose_text'), false)
+  assert.equal(abilityEnabled(legacy, 'desire_map'), false)
 })
 
 test('能力：工具请求解析拒绝非工具 JSON，并保留第一人称 note', () => {

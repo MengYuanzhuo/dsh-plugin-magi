@@ -197,6 +197,9 @@ test('config：只给 provider 不给 model 时忽略 provider', () => {
 test('config：abilities 默认启用，越界值回落并告警', () => {
   const defaults = normalizeConfig({}).config
   assert.equal(defaults.abilities.enabled, true)
+  assert.equal(defaults.abilities.runScript, true)
+  assert.equal(defaults.abilities.composeText, true)
+  assert.equal(defaults.abilities.desireMap, true)
   assert.equal(defaults.abilities.maxToolCallsPerUnit, 2)
 
   const { config, warnings } = normalizeConfig({

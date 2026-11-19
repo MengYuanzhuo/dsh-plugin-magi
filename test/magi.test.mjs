@@ -2,8 +2,8 @@
  * 离线单测：不联网、不调用模型、不依赖 DSH 运行时。
  * 运行：node test/magi.test.mjs
  *
- * 注意本轮的规则变更：三台单元**只能选边**（approve / reject），
- * 因此没有弃权、没有平票，判决只有 承認 / 拒否 / 否決 三种。
+ * 注意规则：三台单元**必须选边**（approve / conditional / reject），
+ * 因此没有弃权；判决为 承認 / 有条件承認 / 拒否 / 否決。
  */
 
 import test from 'node:test'
@@ -24,6 +24,7 @@ import { stubOpinion } from '../lib/stub.js'
 
 const opinion = (unit, stance, confidence = 0.8) => ({ unit, stance, confidence, reason: 'r' })
 const approve = (p) => opinion(p.unit, 'approve')
+const conditional = (p) => opinion(p.unit, 'conditional')
 const reject = (p) => opinion(p.unit, 'reject')
 
 /**
@@ -68,10 +69,10 @@ function makeFakeLlm({ failUnits = [], stanceFor, includeReasoning = true, paylo
   }
 }
 
-/* ------------------------- 判决只有三种，且没有弃权 ------------------------- */
+/* ------------------------- 判决集合没有弃权 / 保留 ------------------------- */
 
-test('判决集合里没有「保留 / HOLD」', () => {
-  assert.deepEqual(Object.keys(VERDICT_LABEL).sort(), ['APPROVE', 'REJECT', 'VETO'])
+test('判决集合包含有条件承認，且没有「保留 / HOLD」', () => {
+  assert.deepEqual(Object.keys(VERDICT_LABEL).sort(), ['APPROVE', 'CONDITIONAL', 'REJECT', 'VETO'])
   assert.equal(VERDICT_LABEL.HOLD, undefined)
 })
 
@@ -80,7 +81,7 @@ test('判决集合里没有「保留 / HOLD」', () => {
 test('normal 档：2 票赞成即通过', () => {
   const result = tallyOpinions([approve(PERSONAS[0]), approve(PERSONAS[1]), reject(PERSONAS[2])], { criticality: 'normal' })
   assert.equal(result.verdict, 'APPROVE')
-  assert.deepEqual(result.counts, { approve: 2, reject: 1 })
+  assert.deepEqual(result.counts, { approve: 2, conditional: 0, reject: 1 })
   assert.equal(result.unanimity, false)
 })
 
@@ -131,7 +132,36 @@ test('normal 档：加权票数相等按保守默认判拒否（不留悬置）'
   assert.ok(tied.notes.some((note) => note.includes('保守默认')))
 })
 
+test('normal 档：2 票有条件承認记 CONDITIONAL，三票各有保留也不悬置', () => {
+  const two = tallyOpinions([conditional(PERSONAS[0]), conditional(PERSONAS[1]), reject(PERSONAS[2])], { criticality: 'normal' })
+  assert.equal(two.verdict, 'CONDITIONAL')
+  assert.deepEqual(two.counts, { approve: 0, conditional: 2, reject: 1 })
+  assert.equal(two.unanimity, false)
+
+  const split = tallyOpinions([approve(PERSONAS[0]), conditional(PERSONAS[1]), reject(PERSONAS[2])], { criticality: 'normal' })
+  assert.equal(split.verdict, 'CONDITIONAL')
+})
+
+test('汇总概率：三台概率取平均，名词取出现最多的一个', () => {
+  const result = tallyOpinions([
+    { ...approve(PERSONAS[0]), probability: 0.8, probabilityLabel: '成功' },
+    { ...conditional(PERSONAS[1]), probability: 0.6, probabilityLabel: '成功' },
+    { ...reject(PERSONAS[2]), probability: 0.4, probabilityLabel: '成立' },
+  ], { criticality: 'normal' })
+  assert.equal(result.probability, 0.6)
+  assert.equal(result.probabilityLabel, '成功')
+})
+
 /* ------------------------------ 计票：critical ------------------------------ */
+
+test('critical 档：三票全有条件承認记 CONDITIONAL，混合票型仍否决', () => {
+  const unanimous = tallyOpinions(PERSONAS.map(conditional), { criticality: 'critical' })
+  assert.equal(unanimous.verdict, 'CONDITIONAL')
+  assert.equal(unanimous.unanimity, true)
+
+  const mixed = tallyOpinions([approve(PERSONAS[0]), conditional(PERSONAS[1]), conditional(PERSONAS[2])], { criticality: 'critical' })
+  assert.equal(mixed.verdict, 'VETO')
+})
 
 test('critical 档：2:1 多数赞成也必须否决', () => {
   const result = tallyOpinions([approve(PERSONAS[0]), approve(PERSONAS[1]), reject(PERSONAS[2])], { criticality: 'critical' })
@@ -246,6 +276,26 @@ test('normalizeOpinion：契约校验', () => {
   const bad = normalizeOpinion({ stance: 'maybe', confidence: 'high', reason: '' }, persona)
   assert.equal(bad.opinion, null)
   assert.equal(bad.problems.length, 3)
+})
+
+test('normalizeOpinion：有条件承認与概率字段', () => {
+  const result = normalizeOpinion({
+    stance: 'conditional',
+    condition: '先做一次全量备份',
+    probability: 0.72,
+    probability_label: '成功概率',
+    confidence: 0.8,
+    reason: '条件满足时可行',
+  }, PERSONAS[0])
+  assert.equal(result.problems.length, 0)
+  assert.equal(result.opinion.stance, 'conditional')
+  assert.equal(result.opinion.condition, '先做一次全量备份')
+  assert.equal(result.opinion.probability, 0.72)
+  assert.equal(result.opinion.probabilityLabel, '成功', '名词应去掉末尾的「概率」')
+
+  const bad = normalizeOpinion({ stance: 'approve', probability: 1.5, confidence: 0.5, reason: 'r' }, PERSONAS[0])
+  assert.equal(bad.opinion, null)
+  assert.ok(bad.problems.some((problem) => problem.includes('probability')))
 })
 
 test('normalizeOpinion：弃权被明确拒绝', () => {
@@ -419,10 +469,12 @@ test('人格：critical 档会写入「需三票一致」的要求', () => {
   assert.ok(normal.includes('JSON'), '始终附带输出契约')
 })
 
-test('人格：输出契约里只有 approve / reject，并明确没有弃权', () => {
+test('人格：输出契约包含 approve / conditional / reject、概率字段与无弃权', () => {
   for (const persona of PERSONAS) {
     const prompt = buildSystemPrompt(persona, { criticality: 'normal' })
-    assert.ok(prompt.includes('"stance": "approve" | "reject"'), `${persona.unit} 的契约应是二选一`)
+    assert.ok(prompt.includes('"stance": "approve" | "conditional" | "reject"'), `${persona.unit} 的契约应包含三档`)
+    assert.ok(prompt.includes('"probability"'), `${persona.unit} 的契约应要求概率`)
+    assert.ok(prompt.includes('"probability_label"'), `${persona.unit} 的契约应要求概率名词`)
     assert.ok(prompt.includes('没有弃权'), `${persona.unit} 的契约应写明没有弃权`)
     assert.ok(!prompt.includes('abstain'), `${persona.unit} 的契约不应再出现 abstain`)
   }
@@ -442,6 +494,9 @@ test('桩模型：同输入同输出，且只投赞成或反对', () => {
   for (const persona of PERSONAS) {
     assert.ok(['approve', 'reject'].includes(stubOpinion(persona, request).stance))
     assert.ok(['approve', 'reject'].includes(stubOpinion(persona, { ...request, criticality: 'critical' }).stance))
+    const stub = stubOpinion(persona, request)
+    assert.ok(stub.probability >= 0 && stub.probability <= 1)
+    assert.ok(typeof stub.probability_label === 'string' && stub.probability_label !== '')
   }
 })
 
@@ -521,6 +576,30 @@ async function runFakeVote(ctx, request, configOverrides = {}) {
   const runner = createVoteRunner({ ctx: routed, config, ledger, bus, logger: { warn() {}, info() {} } })
   return { run: () => runner.runVote(request), dir }
 }
+
+test('端到端（假 LLM）：有条件承認与汇总概率进入结果', async () => {
+  const payloadFor = (unit) => ({
+    stance: unit === 'BALTHASAR-2' ? 'conditional' : 'approve',
+    condition: unit === 'BALTHASAR-2' ? '先完成备份' : '',
+    probability: unit === 'MELCHIOR-1' ? 0.8 : unit === 'BALTHASAR-2' ? 0.6 : 0.4,
+    probability_label: '成功',
+    confidence: 0.7,
+    reason: `${unit} 的理由`,
+  })
+  const { run, dir } = await runFakeVote(makeFakeLlm({ payloadFor }), { question: '要不要把首页标题改短', criticality: 'normal' })
+  try {
+    const result = await run()
+    assert.equal(result.tally.conditional, 1)
+    assert.equal(result.verdict, 'APPROVE', '两票赞成 + 一票有条件仍然过半数')
+    assert.equal(result.probability, 0.6)
+    assert.equal(result.probabilityLabel, '成功')
+    const conditionalOpinion = result.opinions.find((opinion) => opinion.unit === 'BALTHASAR-2')
+    assert.equal(conditionalOpinion.stance, 'conditional')
+    assert.equal(conditionalOpinion.condition, '先完成备份')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 test('端到端（假 LLM）：单台失败按保守默认记拒否，判决仍然确定', async () => {
   const { run, dir } = await runFakeVote(makeFakeLlm({ failUnits: ['MELCHIOR-1'] }), { question: '要不要调整默认超时' })

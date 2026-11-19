@@ -1,7 +1,7 @@
 # dsh-plugin-magi — MAGI（三贤人）
 
 把《新世纪福音战士》里的 **MAGI 决策系统**做成 DeepSeek Harness 插件：一件待决事项输入进去，
-三台**独立且互不可见**的决策单元各自给出「同意 / 不同意」与理由 —— **必须选边，没有弃权、没有保留** —— 再按规则计票。
+三台**独立且互不可见**的决策单元各自给出「承認 / 有条件承認 / 拒否」与理由 —— **必须选边，没有弃权、没有保留** —— 再按规则计票。
 
 | 单元 | 人格属性 | 判断视角 |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ magi_vote(question="要不要删除生产库里的旧表", criticality="critical
 
 ![端末模式：提訴读数与三盾三角盘面](assets/terminal-mode.png)
 
-> **端末模式**：`提訴` 读数（CODE / FILE / EXTENTION / EX_MODE / PRIORITY）+ 三盾三角盘面，只给颜色与判决 —— 蓝＝承認、红＝拒否、琥珀＝待決。
+> **端末模式**：`提訴` 读数（CODE / FILE / EXTENTION / EX_MODE / PRIORITY）+ 三盾三角盘面，只给颜色与判决 —— 蓝＝承認、黄绿＝有条件承認、红＝拒否、琥珀＝待決；右上角同时显示三方汇总概率。
 
 ## 安装
 
@@ -39,13 +39,18 @@ dsh plugin --profile <名> add dsh-plugin-magi                       # 从 npm
 
 | 档位 | 规则 | 结果 |
 | --- | --- | --- |
-| `normal`（默认） | 多数决 | 2:1 → 多数方胜 |
-| `critical`（敏感 / 重要） | **三票必须一致** | 3:0 才 `承認`；任一反对即 `否決` |
+| `normal`（默认） | 多数决 | 2 票以上 `approve` → `承認`；2 票以上 `reject` → `拒否`；其余（含 1:1:1 或 2 票有条件）→ `有条件承認` |
+| `critical`（敏感 / 重要） | **三票必须一致** | 全票 `approve` 才 `承認`；全票 `conditional` → `有条件承認`；任何混合或反对 → `否決` |
 
-判决只有三种：`承認 / 拒否 / 否決`。单元只能投 `approve` 或 `reject`，所以不存在平票，
-也没有「保留 / 交还人类」这类悬置结果。档位由调用方显式传入；未传时按**敏感词表**自动升级
+判决有四种：`承認 / 有条件承認 / 拒否 / 否決`。单元投 `approve`、`conditional` 或 `reject`；
+`conditional` 表示「条件满足时同意」，必须写明条件，它不是弃权，也不是把判断推回人类。
+所以不存在「保留 / 交还人类」这类悬置结果。档位由调用方显式传入；未传时按**敏感词表**自动升级
 （删除、不可逆、密钥、隐私、资金、外发、上线、生产环境、医疗……），并在结果里写明命中了哪些词。
 单元调用失败按保守默认记为**拒否**并注明；三台全失败则整次表决报错，不伪造判决。
+
+每份意见还带 `probability`（0–1）与 `probability_label`（如「成功」「胜利」「正确」「支持」）：
+汇总结果取三台概率的算术平均，名词取三台里出现次数最多的一个（平票取第一台）。
+端末模式在右上角判决框下方显示 `成功 概率：xx.xx%`。
 
 ## 用法
 
@@ -57,8 +62,8 @@ magi_history(limit?, key?)                            历史记录
 magi_personas(action?, force?)                        查看 / 导出人格
 ```
 
-`magi_vote` 返回三份原始意见（stance / confidence / reason / key_factors / risks / caveats）、
-计票、判决、耗时，以及每台生效人格的来源与 sha256。
+`magi_vote` 返回三份原始意见（stance / condition / probability / probability_label / confidence / reason /
+key_factors / risks / caveats）、计票、判决、汇总概率、耗时，以及每台生效人格的来源与 sha256。
 
 ### 界面
 
@@ -70,8 +75,8 @@ magi_personas(action?, force?)                        查看 / 导出人格
 
 | | 詳細（默认） | 端末 |
 | --- | --- | --- |
-| 盘面 | 三列单元竖栏，逐字打印理由 | **三盾三角盘面**：蓝＝承認、红＝拒否、琥珀＝待決 |
-| 输出 | 理由全文 + key_factors / risks / caveats | **只有颜色与判决词** |
+| 盘面 | 三列单元竖栏，逐字打印理由 | **三盾三角盘面**：蓝＝承認、黄绿＝有条件承認、红＝拒否、琥珀＝待決 |
+| 输出 | 理由全文 + key_factors / risks / caveats + 条件 | **只有颜色与判决词**；右上角额外显示汇总概率 |
 
 ![詳細模式：三台逐字理由](assets/detail-mode.png)
 
@@ -80,7 +85,7 @@ magi_personas(action?, force?)                        查看 / 导出人格
 端末模式下按「执行」后，三块盾形会在**浅绿 ↔ 黑**之间高频闪烁表示思考（三台的周期与相位各自随机），
 某台出结果即定格成结果色；詳細模式保持 `ANALYZING` 状态灯，不加闪烁。
 
-界面文案以中文为主，只保留少数原作写法：`承認 / 拒否 / 否決`、`MAGI SYSTEM`、`VOTE / CONF / ELAPSED /
+界面文案以中文为主，只保留少数原作写法：`承認 / 有条件承認 / 拒否 / 否決`、`MAGI SYSTEM`、`VOTE / CONF / ELAPSED /
 UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 
 ### 人格文件（点盾形查看 / 编辑）
@@ -181,7 +186,7 @@ magi_personas(action="show")     # 看当前生效的是内置还是文件，以
 ```bash
 NODE="C:\Users\<你>\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
 
-& $NODE test\magi.test.mjs          # 46 项：计票 / 加权 / 敏感词 / 配置 / 账本（含清空） / 子功能回合 / 桩模型端到端 / 失败降级
+& $NODE test\magi.test.mjs          # 51 项：计票（含有条件承認/概率） / 加权 / 敏感词 / 配置 / 账本 / 子功能回合 / 桩模型端到端 / 失败降级
 & $NODE test\api.test.mjs           # 14 项：路由（含清空、人格保存与跨站拒绝）
 & $NODE test\personas.test.mjs      # 9 项：人格外部文件层（含手动保存与缓存失效）
 & $NODE test\abilities.test.mjs     # 14 项：欲望读数 / 文本起草 / 脚本运行 / 能力注册表

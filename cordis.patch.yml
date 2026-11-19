@@ -9,7 +9,7 @@
         # 空字符串 = 沿用当前会话默认的 provider / model（推荐）
         provider: ''
         model: ''
-        # 计票：normal（多数决）；critical 需三票一致。三台单元只能选边，没有弃权/保留
+        # 计票：normal（多数决）；critical 需三票全 approve 或全 conditional。单元投 approve/conditional/reject，没有弃权/保留
         timeoutMs: 90000
         maxTokens: 2000
         passTemperature: false      # 运行时若接受 temperature 再打开（0.2 / 0.5 / 0.9）

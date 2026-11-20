@@ -223,7 +223,7 @@ export function apply(ctx, rawConfig) {
     async execute(args) {
       if (args?.action === 'export') {
         if (!config.personasDir) {
-          throw new Error('未配置 personasDir，无法导出：请先在 profile 的 cordis.patch.yml 里给 magi 行设置 personasDir')
+          throw new Error('未配置 personasDir，无法导出：请在插件配置页填写人格目录，或在 profile 的 cordis.patch.yml 里给 magi 行设置 personasDir')
         }
         const result = await exportPersonaFiles(config.personasDir, { force: args?.force === true })
         return { ...result, hint: '编辑这些 .md 文件即可调整人格，下一次表决生效；文件优先于内置默认。' }

@@ -296,6 +296,10 @@ test('normalizeOpinion：有条件承認与概率字段', () => {
   const bad = normalizeOpinion({ stance: 'approve', probability: 1.5, confidence: 0.5, reason: 'r' }, PERSONAS[0])
   assert.equal(bad.opinion, null)
   assert.ok(bad.problems.some((problem) => problem.includes('probability')))
+
+  const noCondition = normalizeOpinion({ stance: 'conditional', confidence: 0.5, reason: 'r' }, PERSONAS[0])
+  assert.equal(noCondition.opinion, null)
+  assert.ok(noCondition.problems.some((problem) => problem.includes('condition')))
 })
 
 test('normalizeOpinion：弃权被明确拒绝', () => {

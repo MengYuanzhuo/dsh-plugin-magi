@@ -133,7 +133,8 @@ UNANIMOUS`、`STANDBY / ANALYZING`，以及单元名。
 读取方式有三种：工具 `magi_history(limit?, key?)`、HTTP `GET /magi/api/history`（摘要 + 完整记录）
 与 `GET /magi/api/result?id=<key>`（单条），以及**端末模式的「历史」抽屉**：
 
-- 按钮在端末模式顶部中间；抽屉按条列出最近的记录（编号 / 判决 / 票数 / 档位 / 时间 / 议题缩略）。
+- 两种模式的 `詳細 | 端末` 开关都在**顶部居中**；端末模式的「历史」按钮紧贴开关右侧。
+- 抽屉按条列出最近的记录（编号 / 判决 / 票数 / 档位 / 时间 / 议题缩略）。
 - 点任一条 → 载入该次决议并切到**詳細模式**看三份意见全文；`Esc` 或「关闭」关闭。
 - 「清空历史」需要**连点两次确认**（5 秒内），或直接 `DELETE /magi/api/history`。
   清空只删除 `ledger.jsonl` 与 `ledger.index.json` 的内容；`counter.json` **保留**，
